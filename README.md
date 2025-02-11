@@ -1,5 +1,5 @@
 ## How it works
-4 accounts send a request to the mojang api to check if the name is available. If it is, another account claims it. This circumvents the strict rate limit on the claiming endpoint by utilizing the lower rate limit on the checking endpoint. With four accounts, MCSniperRust is able to claim every name within four seconds of it dropping. To achieve the same performance with MCSniperGo you'd need over 500 accounts.
+Four accounts send a request to the mojang api to check if the name is available. If it is, another account claims it. This circumvents the strict rate limit on the claiming endpoint by utilizing the lower rate limit on the checking endpoint. With four accounts, MCSniperRust is able to claim every name within four seconds of it dropping. To achieve the same performance with MCSniperGo you'd need over 500 accounts.
 
 ## Usage
 - [Install Tauri](https://tauri.app/start/) and first its [prerequisites](https://tauri.app/start/prerequisites/).

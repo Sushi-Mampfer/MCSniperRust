@@ -11,6 +11,9 @@ Four accounts send a request to the mojang api to check if the name is available
 - Enter your desired name in the "Name" field.
 - Press the "Start" button.
 
+## How it looks
+![grafik](https://github.com/user-attachments/assets/89b1eb24-9c7a-4f84-a5e1-0dd8ae837ffe)
+
 ## TODO
 - [ ] Add a custom icon
 - [ ] Compiled releases

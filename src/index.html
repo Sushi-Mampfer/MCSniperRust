@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <link rel="stylesheet" href="styles.css" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Tauri App</title>
+        <script type="module" src="/main.js" defer></script>
+    </head>
+
+    <body>
+        <div class="left">
+            <input id="claim_token" type="text" placeholder="Claim Account" />
+            <textarea id="tokens" placeholder="Checker Accounts"></textarea>
+        </div>
+        <div class="right">
+            <div id="logs"></div>
+            <div id="config">
+                <input
+                    id="name"
+                    type="text"
+                    placeholder="Name"
+                    autocomplete="false"
+                />
+                <button id="start" class="storp">Start</button>
+                <button id="stop" class="storp">Stop</button>
+            </div>
+        </div>
+    </body>
+</html>

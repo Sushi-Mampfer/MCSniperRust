@@ -1,0 +1,146 @@
+html {
+    background-image: url("https://images.unsplash.com/photo-1485470733090-0aae1788d5af");
+    background-size: cover;
+}
+
+* {
+    font-size: 16px;
+    font-family: Arial, sans-serif;
+}
+
+html {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+body {
+    padding: 1em;
+    height: calc(100% - 2em);
+    width: calc(100% - 2em);
+    margin: 0;
+}
+
+textarea {
+    resize: none;
+}
+
+textarea:focus {
+    outline: none;
+}
+
+input:focus {
+    outline: none;
+}
+
+::-webkit-scrollbar {
+    position: relative;
+    left: 100%;
+    width: 0.5em;
+    border: 0.5em solid transparent;
+}
+
+::-webkit-scrollbar-track {
+    background-color: transparent;
+    padding-right: 0.25em;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: #888;
+    border-radius: 1em;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: #666;
+}
+
+::-webkit-scrollbar-button {
+    display: none;
+}
+
+.left {
+    float: left;
+    height: 100%;
+    width: 50%;
+}
+
+.right {
+    float: right;
+    height: 100%;
+    width: 50%;
+}
+
+.left > *,
+.right > * {
+    color: #ccc;
+    margin: 0.5em;
+    width: calc(100% - 3em);
+    background-color: rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(5px);
+    border: 0.5em solid transparent;
+    border-radius: 1em;
+    padding: 0.5em;
+}
+
+.right > * {
+    height: calc(50% - 3em);
+}
+
+#logs {
+    overflow-y: scroll;
+}
+
+#config {
+    display: inline-grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, 1fr);
+    padding: 1em;
+    width: calc(100% - 4em);
+    height: calc(50% - 4em);
+}
+
+#claim_token {
+    height: 2em;
+}
+
+#tokens {
+    height: calc(100% - 8em);
+}
+
+#config > * {
+    padding: 0;
+    margin: 1rem;
+}
+.storp {
+    color: #ccc;
+    background-color: rgba(0, 0, 0, 0);
+    backdrop-filter: blur(5px);
+    border: 0.5rem solid transparent;
+    border-radius: 10rem;
+    font-size: 5rem;
+}
+
+.storp:hover {
+    background-color: rgba(127, 127, 127, 0.5);
+}
+
+.storp:active {
+    background-color: rgba(127, 127, 127, 0.8);
+}
+
+#stop {
+    display: none;
+}
+
+#name {
+    font-size: 4rem;
+    text-align: center;
+    color: #ccc;
+    -webkit-appearance: none;
+    width: calc(100% - 3rem);
+    height: calc(100% - 3rem);
+    background-color: rgba(0, 0, 0, 0);
+    backdrop-filter: blur(5px);
+    border: 0.5rem solid transparent;
+    border-radius: 10rem;
+}

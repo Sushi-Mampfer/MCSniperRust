@@ -12,6 +12,7 @@
 - Press the "Start" button.
 
 ## TODO
+- [ ] Add a custom icon
 - [ ] Compiled releases
 - [ ] Support for more than four accounts
 - [ ] Proxy Support

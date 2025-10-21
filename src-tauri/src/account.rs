@@ -5,8 +5,10 @@ use regex::Regex;
 use reqwest::{
     blocking::ClientBuilder,
     header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
+    redirect,
 };
 use tauri::{http::HeaderMap, window::Color, Emitter};
+use urlencoding::encode;
 
 use crate::{
     app_handle,
@@ -272,110 +274,90 @@ impl Account {
         });
     }
 
-    fn auth(user: &str, passwd: &str) -> Option<String> {
-        let client = ClientBuilder::new().cookie_store(true).build().ok()?;
-        let data = client.get("https://login.live.com/oauth20_authorize.srf?client_id=000000004C12AE6F&redirect_uri=https://login.live.com/oauth20_desktop.srf&scope=service::user.auth.xboxlive.com::MBI_SSL&display=touch&response_type=token&locale=en").send().ok()?.text().ok()?;
-        let re1 = Regex::new("value=\"(.+?)\"").ok()?;
-        let re2 = Regex::new("urlPost:'(.+?)'").ok()?;
-        let sfttag = re1.captures(data.as_str())?.get(1)?.as_str();
-        let posturl = re2.captures(data.as_str())?.get(1)?.as_str();
-        let res = client
-            .post(posturl)
-            .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .body(format!(
-                "login={}&loginfmt={}&passwd={}&PPFT={}",
-                user, user, passwd, sfttag
-            ))
+    fn auth(user: &str, passwd: &str) -> Result<String, String> {
+        let Ok(client) = ClientBuilder::new().cookie_store(true).build() else {
+            return Err("Failed to initialize client for auth!".to_string());
+        };
+        let Ok(res) = client.get("https://login.live.com/oauth20_authorize.srf?client_id=000000004C12AE6F&redirect_uri=https://login.live.com/oauth20_desktop.srf&scope=service::user.auth.xboxlive.com::MBI_SSL&display=touch&response_type=token&locale=en").send() else {
+            return Err("Failed to send initial request for auth!".to_string())        };
+
+        let valRegex = Regex::new("value=\"(.+?)\"").ok()?;
+        let urlPostRegex = Regex::new("urlPost:'(.+?)'").ok()?;
+
+        let Ok(res) = res.text() else {
+            return Err("Failed to extract text from initial request for auth!".to_string());
+        };
+
+        let value = if let Some(caps) = valRegex.captures(&res) {
+            caps[1].to_owned()
+        } else {
+            return Err("Failed to find value in initial request for auth!".to_string());
+        };
+
+        let urlPost = if let Some(caps) = urlPostRegex.captures(&res) {
+            caps[1].to_owned()
+        } else {
+            return Err("Failed to find url in initial request for auth!".to_string());
+        };
+
+        let data = format!(
+            "login={}&loginfmt={}&passwd={}&PPFT={}",
+            encode(user),
+            encode(user),
+            encode(passwd),
+            encode(&value)
+        );
+
+        let Ok(res) = client
+            .post(&urlPost)
+            .body(data)
+            .header("Content-Type", "application/x-www-form-urlencoded")
             .send()
-            .ok()?;
+        else {
+            return Err("Failed to send second request for auth!".to_string());
+        };
+
         let url = res.url().as_str();
-        let re = Regex::new("access_token=(.+?)&").ok()?;
-        let ms_token = re.captures(url)?.get(1)?.as_str();
 
-        let data = format!(
-            r#"{{
-            "Properties": {{
-                "AuthMethod": "RPS",
-                "SiteName": "user.auth.xboxlive.com",
-                "RpsTicket": "{}"
-            }},
-            "RelyingParty": "http://auth.xboxlive.com",
-            "TokenType": "JWT"
-            }}"#,
-            ms_token
-        );
-        let res = client
-            .post("https://user.auth.xboxlive.com/user/authenticate")
-            .header(CONTENT_TYPE, "application/json")
-            .header(ACCEPT, "application/json")
-            .body(data)
-            .send()
-            .ok()?
-            .text()
-            .ok()?;
-        let data = res.as_str();
-        let re = Regex::new("\"Token\":\"(.+?)\"(?s)").ok()?;
-        let live_token = re.captures(data)?.get(1)?.as_str();
+        if url == urlPost {
+            return Err("invalid credentials, no redirect".to_string());
+        };
 
-        let data = format!(
-            r#"{{
-            "Properties": {{
-                "SandboxId": "RETAIL",
-                "UserTokens": [
-                    "{}"
-                ]
-            }},
-            "RelyingParty": "rp://api.minecraftservices.com/",
-            "TokenType": "JWT"
-        }}"#,
-            live_token
-        );
-        let res = client
-            .post("https://xsts.auth.xboxlive.com/xsts/authorize")
-            .header(CONTENT_TYPE, "application/json")
-            .header(ACCEPT, "application/json")
-            .body(data)
-            .send()
-            .ok()?
-            .text()
-            .ok()?;
-        let data = res.as_str();
-        let re_tok = Regex::new("\"Token\":\"(.+?)\"(?s)").ok()?;
-        let re_uhs = Regex::new("\"uhs\":\"(.+?)\"(?s)").ok()?;
-        let xsts_token = re_tok.captures(data)?.get(1)?.as_str();
-        let uhs = re_uhs.captures(data)?.get(1)?.as_str();
+        let Ok(body) = res.text() else {
+            return Err("Failed to get text from secondary request!".to_string());
+        };
 
-        let data = format!(
-            r#"{{
-           "identityToken" : "XBL3.0 x={};{}",
-           "ensureLegacyEnabled" : true
-        }}"#,
-            uhs, xsts_token
-        );
-        let res = client
-            .post("https://api.minecraftservices.com/authentication/login_with_xbox")
-            .header(CONTENT_TYPE, "application/json")
-            .body(data)
-            .send()
-            .ok()?
-            .text()
-            .ok()?;
-        let data = res.as_str();
-        let re = Regex::new("\"access_token\" : \"(.+?)\"(?s)").ok()?;
-        Some(re.captures(data)?.get(1)?.as_str().to_owned())
+        if body.contains("Sign in to") {
+            return Err("Invalid credentials, sign in to".to_string());
+        };
+
+        if body.contains("Help us protect your account") {
+            return Err("2fa is enabled, which is not supported now".to_string());
+        };
+
+        if !url.contains("access_token") {
+            return Err("Invalid credentials, no access_token in redirect".to_string());
+        };
     }
-}
 
-pub fn parse_list(accs: Vec<String>) -> Option<VecDeque<Account>> {
-    let mut accounts = VecDeque::new();
-    for acc in accs {
-        let mut split = acc.split(':');
-        let user = split.next()?.to_owned();
-        let passwd = split.next()?.to_owned();
-        if let Some(account) = Account::new(user, passwd) {
-            accounts.push_back(account);
+    pub fn parse_list(accs: Vec<String>) -> Option<VecDeque<Account>> {
+        let mut accounts = VecDeque::new();
+        for (i, acc) in accs.iter().enumerate() {
+            if i != 0 {
+                thread::sleep(std::time::Duration::from_secs(21));
+            }
+            let mut split = acc.split(':');
+            let user = split.next()?.to_owned();
+            let passwd = split.next()?.to_owned();
+            log(
+                "INFO",
+                Color::from((255, 255, 0)),
+                format!("Signing in to {}.",),
+            );
+            if let Some(account) = Account::new(user, passwd) {
+                accounts.push_back(account);
+            }
         }
-        thread::sleep(std::time::Duration::from_secs(20));
+        Some(accounts)
     }
-    Some(accounts)
 }

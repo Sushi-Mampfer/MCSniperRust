@@ -5,7 +5,7 @@ use reqwest::{blocking::ClientBuilder, header::HeaderMap};
 use tauri::{window::Color, Emitter, Manager};
 
 use crate::{
-    account::{parse_list, Account},
+    account::Account,
     app_handle, get_thread_status,
     log::{alert, log},
     set_thread_status,
@@ -28,7 +28,7 @@ pub fn start(accounts: Vec<String>, claim: String, name: String) -> bool {
 
 fn snipe_slow(name: String, accounts: Vec<String>, claim: String) {
     thread::sleep(Duration::from_secs(1));
-    let mut accounts = match parse_list(accounts) {
+    let mut accounts = match Account::parse_list(accounts) {
         Some(accs) => accs,
         _ => {
             log(

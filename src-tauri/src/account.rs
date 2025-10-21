@@ -1,4 +1,7 @@
-use std::{collections::VecDeque, thread};
+use std::{
+    collections::{HashMap, VecDeque},
+    thread,
+};
 
 use chrono::{DateTime, Duration, Utc};
 use regex::Regex;
@@ -7,8 +10,9 @@ use reqwest::{
     header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
     redirect,
 };
+use serde_json::{json, Value};
 use tauri::{http::HeaderMap, window::Color, Emitter};
-use urlencoding::encode;
+use urlencoding::{decode, encode};
 
 use crate::{
     app_handle,
@@ -281,20 +285,20 @@ impl Account {
         let Ok(res) = client.get("https://login.live.com/oauth20_authorize.srf?client_id=000000004C12AE6F&redirect_uri=https://login.live.com/oauth20_desktop.srf&scope=service::user.auth.xboxlive.com::MBI_SSL&display=touch&response_type=token&locale=en").send() else {
             return Err("Failed to send initial request for auth!".to_string())        };
 
-        let valRegex = Regex::new("value=\"(.+?)\"").ok()?;
-        let urlPostRegex = Regex::new("urlPost:'(.+?)'").ok()?;
+        let val_regex = Regex::new("value=\"(.+?)\"").unwrap();
+        let url_post_regex = Regex::new("urlPost:'(.+?)'").unwrap();
 
         let Ok(res) = res.text() else {
             return Err("Failed to extract text from initial request for auth!".to_string());
         };
 
-        let value = if let Some(caps) = valRegex.captures(&res) {
+        let value = if let Some(caps) = val_regex.captures(&res) {
             caps[1].to_owned()
         } else {
             return Err("Failed to find value in initial request for auth!".to_string());
         };
 
-        let urlPost = if let Some(caps) = urlPostRegex.captures(&res) {
+        let url_post = if let Some(caps) = url_post_regex.captures(&res) {
             caps[1].to_owned()
         } else {
             return Err("Failed to find url in initial request for auth!".to_string());
@@ -309,7 +313,7 @@ impl Account {
         );
 
         let Ok(res) = client
-            .post(&urlPost)
+            .post(&url_post)
             .body(data)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .send()
@@ -317,9 +321,10 @@ impl Account {
             return Err("Failed to send second request for auth!".to_string());
         };
 
-        let url = res.url().as_str();
+        let binding = res.url().clone();
+        let url = binding.as_str();
 
-        if url == urlPost {
+        if url == url_post {
             return Err("invalid credentials, no redirect".to_string());
         };
 
@@ -338,6 +343,77 @@ impl Account {
         if !url.contains("access_token") {
             return Err("Invalid credentials, no access_token in redirect".to_string());
         };
+
+        let Some(params) = url.split("#").nth(1) else {
+            return Err("Failed to parse redirect url".to_string());
+        };
+
+        let mut access_token = "".to_string();
+        let mut refresh_token = "".to_string();
+
+        for i in params.split("&") {
+            let mut pair = i.split("=");
+            let Some(key) = pair.next() else {
+                return Err(format!("Something is wrong with the redirect url: {}", url));
+            };
+            let Some(value) = pair.next() else {
+                return Err(format!("Something is wrong with the redirect url: {}", url));
+            };
+            if key == "access_token" {
+                if let Ok(value) = decode(value) {
+                    access_token = value.to_string()
+                } else {
+                    return Err(format!("Something is wrong with the access_token: {}", url));
+                };
+            } else if key == "refresh_token" {
+                if let Ok(value) = decode(value) {
+                    refresh_token = value.to_string()
+                } else {
+                    return Err(format!(
+                        "Something is wrong with the refresh_token: {}",
+                        url
+                    ));
+                };
+            }
+        }
+
+        if access_token.is_empty() {
+            return Err(format!("access_token is missing: {}", url));
+        }
+
+        if refresh_token.is_empty() {
+            return Err(format!("refresh_token is missing: {}", url));
+        }
+
+        let body = json!({
+            "Properties": {
+                "Authmethod": "RPS",
+                "Sitename": "user.auth.xboxlive.com",
+                "Rpsticket": access_token,
+            },
+            "Relyingparty": "http://auth.xboxlive.com",
+            "Tokentype": "JWT",
+        });
+
+        let mut headers = HeaderMap::new();
+        headers.append("Content-Type", "application/json".parse().unwrap());
+        headers.append("Accept", "application/json".parse().unwrap());
+        headers.append("x-xbl-contract-version", "1".parse().unwrap());
+
+        let Ok(res) = client
+            .post("https://user.auth.xboxlive.com/user/authenticate")
+            .headers(headers)
+            .json(&body)
+            .send()
+        else {
+            return Err("Failed to send request for xbox live!".to_string());
+        };
+
+        let Ok(body) = res.json::<Value>() else {
+            return Err("Failed to parse request body for xbox live!".to_string());
+        };
+
+        todo!()
     }
 
     pub fn parse_list(accs: Vec<String>) -> Option<VecDeque<Account>> {
@@ -349,11 +425,11 @@ impl Account {
             let mut split = acc.split(':');
             let user = split.next()?.to_owned();
             let passwd = split.next()?.to_owned();
-            log(
+            /* log(
                 "INFO",
                 Color::from((255, 255, 0)),
                 format!("Signing in to {}.",),
-            );
+            ); */
             if let Some(account) = Account::new(user, passwd) {
                 accounts.push_back(account);
             }

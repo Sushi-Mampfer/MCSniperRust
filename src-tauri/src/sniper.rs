@@ -1,6 +1,10 @@
-use std::{thread, time::Duration};
+use std::{
+    collections::VecDeque,
+    thread::{self, sleep},
+    time::Duration,
+};
 
-use reqwest::{blocking::ClientBuilder, header::HeaderMap};
+use reqwest::{blocking::ClientBuilder, header::HeaderMap, Proxy};
 
 use tauri::{window::Color, Emitter, Manager};
 
@@ -20,14 +24,74 @@ pub fn stop() {
 }
 
 #[tauri::command]
-pub fn start(accounts: Vec<String>, claim: String, name: String) -> bool {
-    thread::spawn(move || snipe_slow(name, accounts, claim));
+pub fn start(accounts: Vec<String>, claim: String, name: String, proxies: Vec<String>) -> bool {
+    thread::spawn(move || snipe(name, accounts, claim, proxies));
     set_thread_status(true);
     true
 }
 
-fn snipe_slow(name: String, accounts: Vec<String>, claim: String) {
+fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String>) {
     thread::sleep(Duration::from_secs(1));
+
+    let mut proxy_list = VecDeque::new();
+    proxy_list.push_back(None);
+
+    for p in proxies {
+        let Ok(proxy) = Proxy::all(p) else {
+            log(
+                "ERROR",
+                Color::from((225, 0, 0)),
+                &format!("{} is not a valid proxy.", p),
+            );
+            continue;
+        };
+        proxy_list.push_back(Some(proxy));
+    }
+
+    log(
+        "SUCCESS",
+        Color::from((0, 255, 0)),
+        &format!("Added {} proxies.", proxy_list.len()),
+    );
+
+    let accounts = accounts.chunks((accounts.len() / proxies.len()).max(1));
+
+    let threads = Vec::new();
+
+    for (i, accs) in accounts.enumerate() {
+        let proxy = proxy_list[i];
+        thread::spawn(|| {
+            let mut out = Vec::new();
+            for (i, acc) in accs.iter().enumerate() {
+                if i != 0 {
+                    sleep(Duration::from_secs(21));
+                }
+
+                let split = acc.split(":");
+                let Some(user) = split.next() else {
+                    log(
+                        "ERROR",
+                        Color::from((255, 0, 0)),
+                        &format!("{} isn't a valid account!", i),
+                    );
+                    continue;
+                };
+                let Some(pass) = split.next() else {
+                    log(
+                        "ERROR",
+                        Color::from((255, 0, 0)),
+                        &format!("{} isn't a valid account!", i),
+                    );
+                    continue;
+                };
+                if let Some(acc) = Account::new(user.to_owned(), pass.to_owned(), proxy) {
+                    out.push(acc);
+                };
+            }
+            out
+        });
+    }
+
     let mut accounts = match Account::parse_list(accounts) {
         Some(accs) => accs,
         _ => {
@@ -68,7 +132,7 @@ fn snipe_slow(name: String, accounts: Vec<String>, claim: String) {
             return;
         }
     };
-    let claim = match Account::new(user.to_string(), pass.to_string()) {
+    let claim = match Account::new(user.to_string(), pass.to_string(), None) {
         Some(acc) => acc,
         _ => {
             log(

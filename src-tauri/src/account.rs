@@ -1,14 +1,11 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    thread,
-};
+use std::{collections::VecDeque, thread};
 
 use chrono::{DateTime, Duration, Utc};
 use regex::Regex;
 use reqwest::{
     blocking::ClientBuilder,
-    header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
-    redirect,
+    header::{ACCEPT, AUTHORIZATION},
+    Proxy,
 };
 use serde_json::{json, Value};
 use tauri::{http::HeaderMap, window::Color, Emitter};
@@ -28,6 +25,7 @@ enum AccType {
 #[derive(Debug)]
 pub struct Account {
     token: String,
+    refresh_token: String,
     user: String,
     passwd: String,
     acc_type: AccType,
@@ -35,30 +33,30 @@ pub struct Account {
 }
 
 impl Account {
-    pub fn new(user: String, passwd: String) -> Option<Self> {
+    pub fn new(user: String, passwd: String, proxy: Option<Proxy>) -> Option<Self> {
         log(
             "INFO",
             Color::from((255, 255, 0)),
             format!("Authenticating {}.", user).as_str(),
         );
-        let token = match Self::auth(&user, &passwd) {
-            Some(tok) => tok,
-            _ => {
+        let (token, refresh_token) = match Self::auth(&user, &passwd, proxy.clone()) {
+            Ok(tokens) => tokens,
+            Err(msg) => {
                 log(
                     "ERROR",
                     Color::from((255, 0, 0)),
-                    format!("Failed to authenticate {}.", user).as_str(),
+                    &format!("Failed to authenticate {}: {}", user, msg),
                 );
                 return None;
             }
         };
-        let acc_type = match Self::check_type(token.clone()) {
+        let acc_type = match Self::check_type(token.clone(), proxy) {
             Some(acc_type) => acc_type,
             _ => {
                 log(
-                    "SUCCESS",
+                    "ERROR",
                     Color::from((255, 0, 0)),
-                    format!("Failed to authenticate {}.", user).as_str(),
+                    format!("Failed to get account type for {}.", user).as_str(),
                 );
                 return None;
             }
@@ -70,6 +68,7 @@ impl Account {
         );
         Some(Account {
             token,
+            refresh_token,
             user,
             passwd,
             acc_type,
@@ -77,10 +76,22 @@ impl Account {
         })
     }
 
-    pub fn claim(self, username: String) -> Option<()> {
+    pub fn claim(self, username: String, proxy: Option<Proxy>) -> Option<()> {
         let mut map = HeaderMap::new();
-        map.insert(AUTHORIZATION, self.get_token().parse().ok()?);
-        let claimer = ClientBuilder::new().default_headers(map).build().ok()?;
+        map.insert(
+            AUTHORIZATION,
+            format!("Bearer {}", self.token).parse().unwrap(),
+        );
+
+        let claimer = if let Some(proxy) = proxy {
+            ClientBuilder::new()
+                .default_headers(map)
+                .proxy(proxy)
+                .build()
+                .ok()?
+        } else {
+            ClientBuilder::new().default_headers(map).build().ok()?
+        };
         if self.get_type() == AccType::UNCLAIMED {
             let data = format!(
                 r#"{{
@@ -90,7 +101,6 @@ impl Account {
             );
             let res = match claimer
                 .post("https://api.minecraftservices.com/minecraft/profile")
-                .header(AUTHORIZATION, format!("Bearer {}", self.token))
                 .header(ACCEPT, "application/json")
                 .body(data)
                 .send()
@@ -154,7 +164,6 @@ impl Account {
                     "https://api.minecraftservices.com/minecraft/profile/name/{}",
                     username
                 ))
-                .header(AUTHORIZATION, format!("Bearer {}", self.token))
                 .send()
             {
                 Ok(res) => res,
@@ -223,8 +232,13 @@ impl Account {
         self.acc_type.clone()
     }
 
-    fn check_type(token: String) -> Option<AccType> {
-        let client = ClientBuilder::new().build().ok()?;
+    fn check_type(token: String, proxy: Option<Proxy>) -> Option<AccType> {
+        let client = if let Some(proxy) = proxy {
+            ClientBuilder::new().proxy(proxy).build().ok()?
+        } else {
+            ClientBuilder::new().build().ok()?
+        };
+
         let res = client
             .get("https://api.minecraftservices.com/minecraft/profile")
             .header(AUTHORIZATION, format!("Bearer {}", token))
@@ -244,42 +258,187 @@ impl Account {
         None
     }
 
-    pub fn reauth(self) -> Option<Self> {
+    pub fn opt_reauth(&mut self, proxy: Option<Proxy>) {
         if self.time > Utc::now() {
-            return Some(self);
+            return;
         }
-        log(
-            "INFO",
-            Color::from((255, 255, 0)),
-            format!("Reauthenticating {}.", self.user).as_str(),
-        );
-        let token = match Self::auth(self.user.as_str(), self.passwd.as_str()) {
-            Some(tok) => tok,
-            _ => {
-                log(
-                    "ERROR",
-                    Color::from((255, 0, 0)),
-                    format!("Failed to reauthenticate {}.", self.user).as_str(),
-                );
-                return None;
-            }
-        };
-        log(
-            "SUCCESS",
-            Color::from((255, 0, 0)),
-            format!("Successfully reauthenticated {}!", self.user).as_str(),
-        );
-        return Some(Self {
-            token,
-            user: self.user,
-            passwd: self.passwd,
-            acc_type: self.acc_type,
-            time: Utc::now() + Duration::hours(23),
-        });
+        self.reauth(proxy);
     }
 
-    fn auth(user: &str, passwd: &str) -> Result<String, String> {
-        let Ok(client) = ClientBuilder::new().cookie_store(true).build() else {
+    pub fn reauth(&mut self, proxy: Option<Proxy>) -> Result<(), String> {
+        let Ok(client) = (if let Some(proxy) = proxy {
+            ClientBuilder::new().cookie_store(true).proxy(proxy).build()
+        } else {
+            ClientBuilder::new().cookie_store(true).build()
+        }) else {
+            return Err("Failed to initialize client for reauth!".to_string());
+        };
+
+        let body = format!("client_id=000000004C12AE6F&grant_type=refresh_token&refresh_token={}&scope=service::user.auth.xboxlive.com::MBI_SSL", encode(&self.refresh_token));
+
+        let Ok(res) = client
+            .post("https://login.live.com/oauth20_token.srf")
+            .header("Content-Type", "application/x-www-form-urlencode")
+            .body(body)
+            .send()
+        else {
+            return Err("Failed to send request for new tokens!".to_string());
+        };
+
+        let Ok(body) = res.json::<Value>() else {
+            return Err("Failed to parse request for new tokens!".to_string());
+        };
+
+        let Some(access_token) = body.get("access_token").and_then(|v| v.as_str()) else {
+            return Err("No access_token in response!".to_string());
+        };
+
+        let Some(refresh_token) = body.get("refresh_token").and_then(|v| v.as_str()) else {
+            return Err("No refresh_token in response!".to_string());
+        };
+
+        let body = json!({
+            "Properties": {
+                "Authmethod": "RPS",
+                "Sitename": "user.auth.xboxlive.com",
+                "Rpsticket": access_token,
+            },
+            "Relyingparty": "http://auth.xboxlive.com",
+            "Tokentype": "JWT",
+        });
+
+        let mut headers = HeaderMap::new();
+        headers.append("Content-Type", "application/json".parse().unwrap());
+        headers.append("Accept", "application/json".parse().unwrap());
+        headers.append("x-xbl-contract-version", "1".parse().unwrap());
+
+        let Ok(res) = client
+            .post("https://user.auth.xboxlive.com/user/authenticate")
+            .headers(headers)
+            .json(&body)
+            .send()
+        else {
+            return Err("Failed to send request for xbox live!".to_string());
+        };
+
+        let Ok(body) = res.json::<Value>() else {
+            return Err("Failed to parse request body for xbox live!".to_string());
+        };
+
+        let Some(uhs) = body
+            .get("DisplayClaims")
+            .and_then(|v| v.get("xui"))
+            .and_then(|v| v.get(0))
+            .and_then(|v| v.get("uhs"))
+            .and_then(|v| v.as_str())
+        else {
+            return Err("No uhs value found in xbox live auth body.".to_string());
+        };
+
+        let Some(token) = body.get("Token").and_then(|v| v.as_str()) else {
+            return Err("No token found in xbox live auth body.".to_string());
+        };
+
+        let data = json!({
+            "Properties": {
+                "SandboxId": "RETAIL",
+                "UserTokens": [
+                    token
+                ]
+            },
+            "RelyingParty": "rp://api.minecraftservices.com/",
+            "TokenType": "JWT"
+        });
+
+        let Ok(res) = client
+            .post("https://xsts.auth.xboxlive.com/xsts/authorize")
+            .json(&data)
+            .send()
+        else {
+            return Err("Failed to send request for xsts!".to_string());
+        };
+
+        let status = res.status().as_u16();
+
+        let Ok(data) = res.json::<Value>() else {
+            return Err("failed to parse request body for xsts!".to_string());
+        };
+
+        if status == 401 {
+            let Some(error_code) = data.get("XErr").and_then(|v| v.as_i64()) else {
+                return Err("Failed to parse error code for xsts!".to_string());
+            };
+            match error_code {
+                2148916238 => return Err(
+                    "Microsoft account belongs to someone under 18! add to family for this to work"
+                        .to_string(),
+                ),
+                2148916233 => {
+                    return Err("You have no xbox account! Sign up for one to continue.".to_string())
+                }
+                _ => {
+                    let Some(error) = data.get("Message").and_then(|v| v.as_str()) else {
+                        return Err("Failed to parse error for xsts!".to_string());
+                    };
+                    return Err(format!(
+                        "Failed to got xsts token with error: {} {}",
+                        error_code, error
+                    ));
+                }
+            }
+        }
+
+        let Some(uhs_verify) = body
+            .get("DisplayClaims")
+            .and_then(|v| v.get("xui"))
+            .and_then(|v| v.get(0))
+            .and_then(|v| v.get("uhs"))
+            .and_then(|v| v.as_str())
+        else {
+            return Err("No uhs value found in xbox live auth body.".to_string());
+        };
+
+        if uhs != uhs_verify {
+            return Err("uhs tokens don't match!".to_string());
+        }
+
+        let Some(token) = body.get("Token").and_then(|v| v.as_str()) else {
+            return Err("No token found in xbox live auth body.".to_string());
+        };
+
+        let body = json!({
+            "identityToken" : format!("XBL3.0 x={};{}", uhs, token),
+            "ensureLegacyEnabled" : true
+        });
+
+        let Ok(res) = client
+            .post("https://api.minecraftservices.com/authentication/login_with_xbox")
+            .json(&body)
+            .send()
+        else {
+            return Err("Failed to send request for bearer!".to_string());
+        };
+
+        let Ok(data) = res.json::<Value>() else {
+            return Err("Failed to parse response for bearer!".to_string());
+        };
+
+        let Some(bearer) = data.get("access_token").and_then(|v| v.as_str()) else {
+            return Err("Failed to extract bearer!".to_string());
+        };
+
+        self.token = bearer.to_string();
+        self.refresh_token = refresh_token.to_string();
+
+        Ok(())
+    }
+
+    fn auth(user: &str, passwd: &str, proxy: Option<Proxy>) -> Result<(String, String), String> {
+        let Ok(client) = (if let Some(proxy) = proxy {
+            ClientBuilder::new().cookie_store(true).proxy(proxy).build()
+        } else {
+            ClientBuilder::new().cookie_store(true).build()
+        }) else {
             return Err("Failed to initialize client for auth!".to_string());
         };
         let Ok(res) = client.get("https://login.live.com/oauth20_authorize.srf?client_id=000000004C12AE6F&redirect_uri=https://login.live.com/oauth20_desktop.srf&scope=service::user.auth.xboxlive.com::MBI_SSL&display=touch&response_type=token&locale=en").send() else {
@@ -354,35 +513,32 @@ impl Account {
         for i in params.split("&") {
             let mut pair = i.split("=");
             let Some(key) = pair.next() else {
-                return Err(format!("Something is wrong with the redirect url: {}", url));
+                return Err("Something is wrong with the redirect url.".to_string());
             };
             let Some(value) = pair.next() else {
-                return Err(format!("Something is wrong with the redirect url: {}", url));
+                return Err("Something is wrong with the redirect url.".to_string());
             };
             if key == "access_token" {
                 if let Ok(value) = decode(value) {
                     access_token = value.to_string()
                 } else {
-                    return Err(format!("Something is wrong with the access_token: {}", url));
+                    return Err("Something is wrong with the access_token.".to_string());
                 };
             } else if key == "refresh_token" {
                 if let Ok(value) = decode(value) {
                     refresh_token = value.to_string()
                 } else {
-                    return Err(format!(
-                        "Something is wrong with the refresh_token: {}",
-                        url
-                    ));
+                    return Err("Something is wrong with the refresh_token.".to_string());
                 };
             }
         }
 
         if access_token.is_empty() {
-            return Err(format!("access_token is missing: {}", url));
+            return Err("access_token is missing.".to_string());
         }
 
         if refresh_token.is_empty() {
-            return Err(format!("refresh_token is missing: {}", url));
+            return Err("refresh_token is missing.".to_string());
         }
 
         let body = json!({
@@ -413,27 +569,108 @@ impl Account {
             return Err("Failed to parse request body for xbox live!".to_string());
         };
 
-        todo!()
-    }
+        let Some(uhs) = body
+            .get("DisplayClaims")
+            .and_then(|v| v.get("xui"))
+            .and_then(|v| v.get(0))
+            .and_then(|v| v.get("uhs"))
+            .and_then(|v| v.as_str())
+        else {
+            return Err("No uhs value found in xbox live auth body.".to_string());
+        };
 
-    pub fn parse_list(accs: Vec<String>) -> Option<VecDeque<Account>> {
-        let mut accounts = VecDeque::new();
-        for (i, acc) in accs.iter().enumerate() {
-            if i != 0 {
-                thread::sleep(std::time::Duration::from_secs(21));
-            }
-            let mut split = acc.split(':');
-            let user = split.next()?.to_owned();
-            let passwd = split.next()?.to_owned();
-            /* log(
-                "INFO",
-                Color::from((255, 255, 0)),
-                format!("Signing in to {}.",),
-            ); */
-            if let Some(account) = Account::new(user, passwd) {
-                accounts.push_back(account);
+        let Some(token) = body.get("Token").and_then(|v| v.as_str()) else {
+            return Err("No token found in xbox live auth body.".to_string());
+        };
+
+        let data = json!({
+            "Properties": {
+                "SandboxId": "RETAIL",
+                "UserTokens": [
+                    token
+                ]
+            },
+            "RelyingParty": "rp://api.minecraftservices.com/",
+            "TokenType": "JWT"
+        });
+
+        let Ok(res) = client
+            .post("https://xsts.auth.xboxlive.com/xsts/authorize")
+            .json(&data)
+            .send()
+        else {
+            return Err("Failed to send request for xsts!".to_string());
+        };
+
+        let status = res.status().as_u16();
+
+        let Ok(data) = res.json::<Value>() else {
+            return Err("failed to parse request body for xsts!".to_string());
+        };
+
+        if status == 401 {
+            let Some(error_code) = data.get("XErr").and_then(|v| v.as_i64()) else {
+                return Err("Failed to parse error code for xsts!".to_string());
+            };
+            match error_code {
+                2148916238 => return Err(
+                    "Microsoft account belongs to someone under 18! add to family for this to work"
+                        .to_string(),
+                ),
+                2148916233 => {
+                    return Err("You have no xbox account! Sign up for one to continue.".to_string())
+                }
+                _ => {
+                    let Some(error) = data.get("Message").and_then(|v| v.as_str()) else {
+                        return Err("Failed to parse error for xsts!".to_string());
+                    };
+                    return Err(format!(
+                        "Failed to got xsts token with error: {} {}",
+                        error_code, error
+                    ));
+                }
             }
         }
-        Some(accounts)
+
+        let Some(uhs_verify) = body
+            .get("DisplayClaims")
+            .and_then(|v| v.get("xui"))
+            .and_then(|v| v.get(0))
+            .and_then(|v| v.get("uhs"))
+            .and_then(|v| v.as_str())
+        else {
+            return Err("No uhs value found in xbox live auth body.".to_string());
+        };
+
+        if uhs != uhs_verify {
+            return Err("uhs tokens don't match!".to_string());
+        }
+
+        let Some(token) = body.get("Token").and_then(|v| v.as_str()) else {
+            return Err("No token found in xbox live auth body.".to_string());
+        };
+
+        let body = json!({
+            "identityToken" : format!("XBL3.0 x={};{}", uhs, token),
+            "ensureLegacyEnabled" : true
+        });
+
+        let Ok(res) = client
+            .post("https://api.minecraftservices.com/authentication/login_with_xbox")
+            .json(&body)
+            .send()
+        else {
+            return Err("Failed to send request for bearer!".to_string());
+        };
+
+        let Ok(data) = res.json::<Value>() else {
+            return Err("Failed to parse response for bearer!".to_string());
+        };
+
+        let Some(bearer) = data.get("access_token").and_then(|v| v.as_str()) else {
+            return Err("Failed to extract bearer!".to_string());
+        };
+
+        Ok((bearer.to_string(), refresh_token))
     }
 }

@@ -12,6 +12,7 @@ use urlencoding::{decode, encode};
 use crate::{
     app_handle,
     log::{alert, log},
+    set_ratelimit, set_thread_status,
 };
 
 #[derive(PartialEq, Clone, Debug)]
@@ -20,7 +21,7 @@ enum AccType {
     UNCLAIMED,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Account {
     token: String,
     refresh_token: String,
@@ -90,7 +91,7 @@ impl Account {
         } else {
             ClientBuilder::new().default_headers(map).build().ok()?
         };
-        if self.get_type() == AccType::UNCLAIMED {
+        if self.acc_type == AccType::UNCLAIMED {
             let data = format!(
                 r#"{{
               "profileName" : "{}"
@@ -222,12 +223,60 @@ impl Account {
         None
     }
 
-    pub fn get_token(&self) -> String {
-        self.token.clone()
-    }
+    pub fn check(&self, name: String, proxy: Option<Proxy>) -> Result<bool, String> {
+        let client = match if let Some(proxy) = proxy {
+            ClientBuilder::new().proxy(proxy).build()
+        } else {
+            ClientBuilder::new().build()
+        } {
+            Ok(c) => c,
+            Err(_) => return Err("Failed to build client for checking!".to_string()),
+        };
 
-    fn get_type(&self) -> AccType {
-        self.acc_type.clone()
+        let Ok(res) = client
+            .get(format!(
+                "https://api.minecraftservices.com/minecraft/profile/name/{}/available",
+                name
+            ))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .send()
+        else {
+            return Err("Failed to send request for checking".to_string());
+        };
+
+        let status = res.status().as_u16();
+        if status == 401 {
+            return Err("A check request returned unathorized!".to_string());
+        } else if status == 429 {
+            set_ratelimit(true);
+            return Err("Hit a ratelimit, sleeping for 300 seconds to clear it.".to_string());
+        } else if status != 200 {
+            return Err(format!(
+                "Checking request returned status code {} with body: {}",
+                status,
+                res.text()
+                    .unwrap_or_else(|_| "Failed to get body.".to_string())
+            ));
+        }
+
+        let Ok(body) = res.text() else {
+            return Err("Failed to get body from check request.".to_string());
+        };
+
+        if body.contains("AVAILABLE") {
+            return Ok(true);
+        } else if body.contains("DUPLICATE") {
+            return Ok(false);
+        } else if body.contains("NOT_ALLOWED") {
+            alert("The name is blocked by mojang!");
+            set_thread_status(false);
+            return Err("The name is blocked by mojang!".to_string());
+        } else {
+            return Err(format!(
+                "Check request response body is malformed: {}",
+                body
+            ));
+        }
     }
 
     fn check_type(token: String, proxy: Option<Proxy>) -> Option<AccType> {
@@ -277,7 +326,7 @@ impl Account {
     }
 
     fn reauth(&mut self, proxy: Option<Proxy>) -> Result<(), String> {
-        let Ok(client) = (if let Some(proxy) = proxy {
+        let Ok(client) = (if let Some(proxy) = proxy.clone() {
             ClientBuilder::new().cookie_store(true).proxy(proxy).build()
         } else {
             ClientBuilder::new().cookie_store(true).build()
@@ -301,11 +350,35 @@ impl Account {
         };
 
         let Some(access_token) = body.get("access_token").and_then(|v| v.as_str()) else {
-            return Err("No access_token in response!".to_string());
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                "Failed to reauth with refresh_token, trying full auth!",
+            );
+            match Self::auth(&self.user, &self.passwd, proxy) {
+                Ok((bearer, refresh_token)) => {
+                    self.token = bearer;
+                    self.refresh_token = refresh_token;
+                    return Ok(());
+                }
+                Err(e) => return Err(e),
+            }
         };
 
         let Some(refresh_token) = body.get("refresh_token").and_then(|v| v.as_str()) else {
-            return Err("No refresh_token in response!".to_string());
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                "Failed to reauth with refresh_token, trying full auth!",
+            );
+            match Self::auth(&self.user, &self.passwd, proxy) {
+                Ok((bearer, refresh_token)) => {
+                    self.token = bearer;
+                    self.refresh_token = refresh_token;
+                    return Ok(());
+                }
+                Err(e) => return Err(e),
+            }
         };
 
         let body = json!({
@@ -455,8 +528,8 @@ impl Account {
         let Ok(res) = client.get("https://login.live.com/oauth20_authorize.srf?client_id=000000004C12AE6F&redirect_uri=https://login.live.com/oauth20_desktop.srf&scope=service::user.auth.xboxlive.com::MBI_SSL&display=touch&response_type=token&locale=en").send() else {
             return Err("Failed to send initial request for auth!".to_string())        };
 
-        let val_regex = Regex::new("value=\"(.+?)\"").unwrap();
-        let url_post_regex = Regex::new("urlPost:'(.+?)'").unwrap();
+        let val_regex = Regex::new(r#"value=\\\"(.*?)\\\""#).unwrap();
+        let url_post_regex = Regex::new(r#"urlPost":"(.+?)""#).unwrap();
 
         let Ok(res) = res.text() else {
             return Err("Failed to extract text from initial request for auth!".to_string());
@@ -554,12 +627,12 @@ impl Account {
 
         let body = json!({
             "Properties": {
-                "Authmethod": "RPS",
-                "Sitename": "user.auth.xboxlive.com",
-                "Rpsticket": access_token,
+                "AuthMethod": "RPS",
+                "SiteName": "user.auth.xboxlive.com",
+                "RpsTicket": access_token,
             },
-            "Relyingparty": "http://auth.xboxlive.com",
-            "Tokentype": "JWT",
+            "RelyingParty": "http://auth.xboxlive.com",
+            "TokenType": "JWT",
         });
 
         let mut headers = HeaderMap::new();
@@ -662,8 +735,8 @@ impl Account {
         };
 
         let body = json!({
-            "identityToken" : format!("XBL3.0 x={};{}", uhs, token),
-            "ensureLegacyEnabled" : true
+            "identityToken" : dbg!(format!("XBL3.0 x={};{}", uhs, token)),
+            "ensureLegacyEnabled": true
         });
 
         let Ok(res) = client
@@ -674,9 +747,12 @@ impl Account {
             return Err("Failed to send request for bearer!".to_string());
         };
 
-        let Ok(data) = res.json::<Value>() else {
+        println!("{}", res.text().unwrap());
+
+        /* let Ok(data) = res.json::<Value>() else {
             return Err("Failed to parse response for bearer!".to_string());
-        };
+        }; */
+        let data = Value::Null;
 
         let Some(bearer) = data.get("access_token").and_then(|v| v.as_str()) else {
             return Err("Failed to extract bearer!".to_string());

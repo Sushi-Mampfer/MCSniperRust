@@ -5,15 +5,15 @@ use std::{
     time::Duration,
 };
 
-use reqwest::{blocking::ClientBuilder, header::HeaderMap, Proxy};
+use reqwest::Proxy;
 
 use tauri::{window::Color, Emitter, Manager};
 
 use crate::{
     account::Account,
-    app_handle, get_thread_status,
+    app_handle, get_ratelimit, get_thread_status,
     log::{alert, log},
-    set_thread_status,
+    set_ratelimit, set_thread_status,
 };
 
 #[tauri::command]
@@ -25,7 +25,7 @@ pub fn stop() {
 }
 
 #[tauri::command]
-pub fn start(accounts: Vec<String>, claim: String, name: String, proxies: Vec<String>) -> bool {
+pub fn start(claim: String, accounts: Vec<String>, proxies: Vec<String>, name: String) -> bool {
     thread::spawn(move || snipe(name, accounts, claim, proxies));
     set_thread_status(true);
     true
@@ -37,7 +37,7 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
     let mut proxy_list = VecDeque::new();
 
     for p in proxies {
-        let Ok(proxy) = Proxy::all(p) else {
+        let Ok(proxy) = Proxy::all(p.clone()) else {
             log(
                 "ERROR",
                 Color::from((225, 0, 0)),
@@ -55,20 +55,22 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
         &format!("Added {} proxies.", proxy_list.len()),
     );
 
-    let accounts = accounts.chunks((accounts.len() / proxies.len()).max(1));
+    let accounts = accounts
+        .chunks((accounts.len() / proxy_list.len()).max(1))
+        .map(|accs| accs.to_vec());
 
-    let threads = Vec::new();
+    let mut threads = Vec::new();
 
     for (i, accs) in accounts.enumerate() {
-        let proxy = proxy_list[i];
-        threads.push(thread::spawn(|| {
+        let proxy = proxy_list[i].clone();
+        threads.push(thread::spawn(move || {
             let mut out = Vec::new();
             for (i, acc) in accs.iter().enumerate() {
                 if i != 0 {
                     sleep(Duration::from_secs(21));
                 }
 
-                let split = acc.split(":");
+                let mut split = acc.split(":");
                 let Some(user) = split.next() else {
                     log(
                         "ERROR",
@@ -85,7 +87,7 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
                     );
                     continue;
                 };
-                if let Some(acc) = Account::new(user.to_owned(), pass.to_owned(), proxy) {
+                if let Some(acc) = Account::new(user.to_owned(), pass.to_owned(), proxy.clone()) {
                     out.push(acc);
                 };
             }
@@ -108,7 +110,7 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
             ),
         }
     }
-    let mut accounts_num = accounts.len();
+    let mut accounts_num = accounts.len() as u32;
 
     if accounts_num == 0 {
         log("ERROR", Color::from((255, 0, 0)), "No working accounts!");
@@ -180,10 +182,6 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
         }
     };
     thread::sleep(Duration::from_secs(1));
-    let url = format!(
-        "https://api.minecraftservices.com/minecraft/profile/name/{}/available",
-        name,
-    );
 
     log(
         "STARTED",
@@ -200,13 +198,22 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
     let (tx_death, rx_death) = channel::<()>();
     let (tx_acc, rx_acc) = channel::<Account>();
 
+    let mut rl = calculate_ratelimit(accounts_num, proxy_list.len() as u32);
+
     loop {
         if !get_thread_status() {
             return;
         }
+        if get_ratelimit() {
+            sleep(Duration::from_secs(300));
+            set_ratelimit(false);
+        }
         loop {
             match rx_death.try_recv() {
-                Ok(_) => accounts_num -= 1,
+                Ok(_) => {
+                    accounts_num -= 1;
+                    rl = calculate_ratelimit(accounts_num, proxy_list.len() as u32);
+                }
                 Err(TryRecvError::Empty) => break,
                 _ => {
                     log(
@@ -241,8 +248,8 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
             }
         }
 
-        let account = match accounts.pop_front() {
-            Some(token) => token,
+        let mut account = match accounts.pop_front() {
+            Some(acc) => acc,
             _ => {
                 log("ERROR", Color::from((255, 0, 0)), "Couldn't pop account!");
                 alert("Couldn't pop account!");
@@ -250,117 +257,72 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
                 return;
             }
         };
-
-        thread::spawn(|| {});
-        sleep(dur);
-        /* let account = match account.reauth() {
-            Some(acc) => acc,
+        let proxy = match proxy_list.pop_front() {
+            Some(p) => p,
             _ => {
-                if accounts.len() < 4 {
-                    log(
-                        "ERROR",
-                        Color::from((255, 0, 0)),
-                        "Not enought working accounts!",
-                    );
-                    alert("Not enought working accounts!");
-                    app_handle().emit("stop", true).unwrap();
-                    return;
-                } else {
-                    continue;
-                }
-            }
-        };
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "Authorization",
-            format!("Bearer {}", account.get_token()).parse().unwrap(),
-        );
-        let client = match ClientBuilder::new().default_headers(headers).build() {
-            Ok(client) => client,
-            _ => {
-                log("ERROR", Color::from((255, 0, 0)), "Couldn't create client!");
-                alert("Couldn't create client!");
+                log("ERROR", Color::from((255, 0, 0)), "Couldn't pop proxy!");
+                alert("Couldn't pop proxy!");
                 app_handle().emit("stop", true).unwrap();
                 return;
             }
         };
 
-        for i in 1..31 {
-            let response = match client.get(&url).send() {
-                Ok(res) => res,
-                _ => {
-                    log("ERROR", Color::from((255, 0, 0)), "Failed to make request!");
-                    alert("Failed to make request!");
-                    app_handle().emit("stop", true).unwrap();
-                    return;
-                }
-            };
-            if response.status().is_success() {
-                let text = match response.text() {
-                    Ok(text) => text,
-                    _ => {
-                        log("ERROR", Color::from((255, 0, 0)), "Error reading response!");
-                        alert("Error reading response!");
+        let tx_acc_pass = tx_acc.clone();
+        let tx_death_pass = tx_death.clone();
+        let proxy_pass = proxy.clone();
+        let name_pass = name.clone();
+        let claim_pass = claim.clone();
+
+        thread::spawn(move || {
+            match account.check(name_pass.clone(), proxy_pass.clone()) {
+                Ok(available) => {
+                    if available {
+                        claim_pass.claim(name_pass, proxy_pass.clone());
                         app_handle().emit("stop", true).unwrap();
+                        set_thread_status(false);
                         return;
+                    } else {
+                        log(
+                            "INFO",
+                            Color::from((255, 255, 0)),
+                            &format!("{} not available yet, continuing", name_pass),
+                        );
                     }
-                };
-                if text.contains("DUPLICATE") {
-                    log(
-                        "DUPLICATE",
-                        Color::from((255, 255, 0)),
-                        format!("Request {}/30 was successfull!", i).as_str(),
-                    );
-                } else if text.contains("AVAILABLE") {
-                    log(
-                        "AVAILABLE",
-                        Color::from((0, 255, 0)),
-                        format!("Request {}/30 was successfull. Claiming now!", i).as_str(),
-                    );
-                    claim.claim(name);
-                    app_handle().emit("stop", true).unwrap();
-                    return;
-                } else {
-                    log(
-                        "Not Allowed",
-                        Color::from((255, 0, 0)),
-                        format!("Request {}/30 was successfull!", i).as_str(),
-                    );
-                    return;
                 }
-            } else if response.status().as_u16() == 429 {
-                log(
-                    "ERROR",
-                    Color::from((255, 0, 0)),
-                    format!("Request {}/30 got ratelimited, sleeping 200 seconds!", i).as_str(),
-                );
-                thread::sleep(Duration::from_secs(200));
-            } else if response.status().as_u16() == 503 {
-                log(
-                    "ERROR",
-                    Color::from((255, 0, 0)),
-                    format!("Request {}/30 failed because Mojang is down!", i).as_str(),
-                );
-            } else {
-                log(
-                    "ERROR",
-                    Color::from((255, 0, 0)),
-                    format!(
-                        "Request {}/30 failed with status code {}!",
-                        i,
-                        response.status()
-                    )
-                    .as_str(),
-                );
-                return;
+                Err(err) => log("ERROR", Color::from((255, 0, 0)), &err),
             }
-            thread::sleep(Duration::from_secs(3));
-        }
-        accounts.push_back(account); */
+            match account.opt_reauth(proxy_pass) {
+                Some(_) => match tx_acc_pass.send(account) {
+                    Ok(_) => (),
+                    Err(_) => log(
+                        "ERROR",
+                        Color::from((255, 0, 0)),
+                        "Failed to send account back after use!",
+                    ),
+                },
+                None => match tx_death_pass.send(()) {
+                    Ok(_) => (),
+                    Err(_) => log(
+                        "ERROR",
+                        Color::from((255, 0, 0)),
+                        "Failed to send account death info!",
+                    ),
+                },
+            }
+        });
+
+        proxy_list.push_back(proxy);
+        sleep(Duration::from_secs_f32(rl));
     }
 }
 
 fn calculate_ratelimit(accounts: u32, proxies: u32) -> f32 {
     let account_ratelimit = 10.0 / accounts as f32;
-    account_ratelimit.max(3.0 / proxies as f32)
+    let rl = account_ratelimit.max(3.0 / proxies as f32);
+    log(
+        "INFO",
+        Color::from((255, 255, 0)),
+        &format!("Calculated new ratelimit to be {}", rl),
+    );
+    rl
 }

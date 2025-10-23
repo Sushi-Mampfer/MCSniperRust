@@ -7,6 +7,7 @@ use tauri::{AppHandle, Manager};
 
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static THREAD_STATUS: OnceLock<Mutex<bool>> = OnceLock::new();
+static RATELIMIT: OnceLock<Mutex<bool>> = OnceLock::new();
 
 fn app_handle<'a>() -> &'a AppHandle {
     APP_HANDLE.get().unwrap()
@@ -20,6 +21,17 @@ fn get_thread_status() -> bool {
 
 fn set_thread_status(param: bool) {
     let mutex = THREAD_STATUS.get_or_init(|| Mutex::new(false));
+    let mut data = mutex.lock().unwrap();
+    *data = param;
+}
+fn get_ratelimit() -> bool {
+    let mutex = RATELIMIT.get_or_init(|| Mutex::new(false));
+    let data = mutex.lock().unwrap();
+    *data
+}
+
+fn set_ratelimit(param: bool) {
+    let mutex = RATELIMIT.get_or_init(|| Mutex::new(false));
     let mut data = mutex.lock().unwrap();
     *data = param;
 }

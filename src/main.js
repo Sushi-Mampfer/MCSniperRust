@@ -17,24 +17,10 @@ window.addEventListener("DOMContentLoaded", () => {
   proxiesEl = document.querySelector("#proxies");
   logsEl = document.querySelector("#logs");
   nameEl = document.querySelector("#name");
-  fastEl = document.querySelector("#fast");
-  privEl = document.querySelector("#private");
   stopEl = document.querySelector("#stop");
   stopEl.addEventListener("click", stop);
   startEl = document.querySelector("#start");
   startEl.addEventListener("click", start);
-  setInterval(function () {
-    var height = window.getComputedStyle(
-      document.querySelector(".switch_cb"),
-      "::after",
-    ).height;
-    var width = document.querySelector(".switch_cb").clientWidth;
-    document.documentElement.style.setProperty("--switch-height", height);
-    document.documentElement.style.setProperty(
-      "--switch-move",
-      parseFloat(width, 10) - parseFloat(height, 10) + "px",
-    );
-  }, 100);
 });
 
 listen("log", (event) => {
@@ -59,8 +45,9 @@ listen("alert", (event) => {
 
 function start() {
   var data = {
-    accounts: tokensEl.value.split("\n").filter((line) => line.trim() !== ""),
     claim: claimEl.value,
+    accounts: tokensEl.value.split("\n").filter((line) => line.trim() !== ""),
+    proxies: proxiesEl.value.split("\n").filter((line) => line.trim() !== ""),
     name: nameEl.value,
   };
   invoke("start", data).then((res) => {

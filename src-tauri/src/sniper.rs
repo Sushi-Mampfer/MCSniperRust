@@ -314,3 +314,8 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
         accounts.push_back(account);
     }
 }
+
+fn calculate_ratelimit(accounts: u32, proxies: u32) -> f32 {
+    let account_ratelimit = 10.0 / accounts as f32;
+    account_ratelimit.max(3.0 / proxies as f32)
+}

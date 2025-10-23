@@ -20,5 +20,13 @@ Four accounts send a request to the mojang api to check if the name is available
 - [ ] Support for more than four accounts
 - [ ] Proxy Support
 
-## Troubleshooting and Support 
-If you have any problems, please message `sushimampfer` on discord.
+## Ratelimits
+> [!IMPORTANT]
+> The ratelimits are exaggerated by a bit to prevent hitting them because of lag. There could exist more ratelimits when combinding one account with multiple ips. But I don't have the time nor the resources to test this currently.
+#### IP
+The ratelimit per IP is `20 requests every 60 seconds`.  
+There seems to be no rule how these requests need to be spaced out.
+
+#### Account
+The ratelimit per account is `30 requests every 300 seconds`.  
+And there is one that doesn't allow you to spam more than 20, but the time to reset seems very low, it's way lower than the time it'll take with spaced out requests.

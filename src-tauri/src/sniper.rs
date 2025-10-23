@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    sync::mpsc::{channel, TryRecvError},
     thread::{self, sleep},
     time::Duration,
 };
@@ -34,7 +35,6 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
     thread::sleep(Duration::from_secs(1));
 
     let mut proxy_list = VecDeque::new();
-    proxy_list.push_back(None);
 
     for p in proxies {
         let Ok(proxy) = Proxy::all(p) else {
@@ -47,6 +47,7 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
         };
         proxy_list.push_back(Some(proxy));
     }
+    proxy_list.push_back(None);
 
     log(
         "SUCCESS",
@@ -60,7 +61,7 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
 
     for (i, accs) in accounts.enumerate() {
         let proxy = proxy_list[i];
-        thread::spawn(|| {
+        threads.push(thread::spawn(|| {
             let mut out = Vec::new();
             for (i, acc) in accs.iter().enumerate() {
                 if i != 0 {
@@ -88,23 +89,34 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
                     out.push(acc);
                 };
             }
+            if proxy.is_none() {
+                sleep(Duration::from_secs(21));
+            }
             out
-        });
+        }));
     }
 
-    let mut accounts = match Account::parse_list(accounts) {
-        Some(accs) => accs,
-        _ => {
-            log(
+    let mut accounts = VecDeque::new();
+
+    for i in threads {
+        match i.join() {
+            Ok(accs) => accounts.append(&mut VecDeque::from(accs)),
+            Err(_) => log(
                 "ERROR",
                 Color::from((255, 0, 0)),
-                "Failed to authenticate accounts!",
-            );
-            alert("Failed to authenticate accounts!");
-            app_handle().emit("stop", true).unwrap();
-            return;
+                "A thread to sign in accounts failed.",
+            ),
         }
-    };
+    }
+    let mut accounts_num = accounts.len();
+
+    if accounts_num == 0 {
+        log("ERROR", Color::from((255, 0, 0)), "No working accounts!");
+        alert("No working accounts!");
+        app_handle().emit("stop", true).unwrap();
+        return;
+    }
+
     let claim = claim.split(":").collect::<Vec<&str>>();
     let user = match claim.get(0) {
         Some(user) => user,
@@ -167,16 +179,6 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
             return;
         }
     };
-    if accounts.len() < 4 {
-        log(
-            "ERROR",
-            Color::from((255, 0, 0)),
-            "Slow needs at least 4 working accounts!",
-        );
-        alert("Slow needs at least 4 working accounts!");
-        app_handle().emit("stop", true).unwrap();
-        return;
-    }
     thread::sleep(Duration::from_secs(1));
     let url = format!(
         "https://api.minecraftservices.com/minecraft/profile/name/{}/available",
@@ -195,7 +197,50 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
         Color::from((0, 255, 0)),
         format!("Sniping {}!", name).as_str(),
     );
+    let (tx_death, rx_death) = channel::<()>();
+    let (tx_acc, rx_acc) = channel::<Account>();
+
     loop {
+        if !get_thread_status() {
+            return;
+        }
+        loop {
+            match rx_death.try_recv() {
+                Ok(_) => accounts_num -= 1,
+                Err(TryRecvError::Empty) => break,
+                _ => {
+                    log(
+                        "ERROR",
+                        Color::from((255, 0, 0)),
+                        "Account death receiver died!",
+                    );
+                    alert("Account death receiver died!");
+                    app_handle().emit("stop", true).unwrap();
+                    return;
+                }
+            }
+        }
+
+        if accounts_num == 0 {
+            log("ERROR", Color::from((255, 0, 0)), "No working accounts!");
+            alert("No working accounts!");
+            app_handle().emit("stop", true).unwrap();
+            return;
+        }
+
+        loop {
+            match rx_acc.try_recv() {
+                Ok(acc) => accounts.push_back(acc),
+                Err(TryRecvError::Empty) => break,
+                _ => {
+                    log("ERROR", Color::from((255, 0, 0)), "Account receiver died!");
+                    alert("Account receiver died!");
+                    app_handle().emit("stop", true).unwrap();
+                    return;
+                }
+            }
+        }
+
         let account = match accounts.pop_front() {
             Some(token) => token,
             _ => {
@@ -205,7 +250,10 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
                 return;
             }
         };
-        let account = match account.reauth() {
+
+        thread::spawn(|| {});
+        sleep(dur);
+        /* let account = match account.reauth() {
             Some(acc) => acc,
             _ => {
                 if accounts.len() < 4 {
@@ -238,9 +286,6 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
         };
 
         for i in 1..31 {
-            if !get_thread_status() {
-                return;
-            }
             let response = match client.get(&url).send() {
                 Ok(res) => res,
                 _ => {
@@ -311,6 +356,8 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
             }
             thread::sleep(Duration::from_secs(3));
         }
-        accounts.push_back(account);
+        accounts.push_back(account); */
     }
 }
+
+fn calculate_delay(accounts: u32, proxies: u32) -> u32 {}

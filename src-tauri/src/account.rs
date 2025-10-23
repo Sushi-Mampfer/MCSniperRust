@@ -1,5 +1,3 @@
-use std::{collections::VecDeque, thread};
-
 use chrono::{DateTime, Duration, Utc};
 use regex::Regex;
 use reqwest::{
@@ -258,14 +256,27 @@ impl Account {
         None
     }
 
-    pub fn opt_reauth(&mut self, proxy: Option<Proxy>) {
+    pub fn opt_reauth(&mut self, proxy: Option<Proxy>) -> Option<()> {
         if self.time > Utc::now() {
-            return;
+            return Some(());
         }
-        self.reauth(proxy);
+        if let Err(e) = self.reauth(proxy) {
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                &format!("Failed to reauth {}: {}", self.user, e),
+            );
+            return None;
+        }
+        log(
+            "Success",
+            Color::from((0, 255, 0)),
+            &format!("Reauthed {}.", self.user),
+        );
+        Some(())
     }
 
-    pub fn reauth(&mut self, proxy: Option<Proxy>) -> Result<(), String> {
+    fn reauth(&mut self, proxy: Option<Proxy>) -> Result<(), String> {
         let Ok(client) = (if let Some(proxy) = proxy {
             ClientBuilder::new().cookie_store(true).proxy(proxy).build()
         } else {

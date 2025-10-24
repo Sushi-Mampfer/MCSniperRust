@@ -319,7 +319,7 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
                         log(
                             "INFO",
                             Color::from((255, 255, 0)),
-                            &format!("{} not available yet, continuing", name_pass),
+                            &format!("{} not available yet, continuing.", name_pass),
                         );
                     }
                 }
@@ -366,7 +366,7 @@ fn calculate_ratelimit(accounts: u32, proxies: u32) -> f32 {
     log(
         "INFO",
         Color::from((255, 255, 0)),
-        &format!("Calculated new ratelimit to be {}", rl),
+        &format!("Calculated new ratelimit to be {}s.", rl),
     );
     rl
 }

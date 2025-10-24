@@ -4,7 +4,7 @@ use regex::Regex;
 use reqwest::{
     blocking::ClientBuilder,
     header::{ACCEPT, AUTHORIZATION},
-    Proxy,
+    redirect, Proxy,
 };
 use serde_json::{from_str, json, Value};
 use tauri::{http::HeaderMap, window::Color, Emitter};
@@ -667,9 +667,16 @@ impl Account {
 
     fn auth(user: &str, passwd: &str, proxy: Option<Proxy>) -> Result<(String, String), String> {
         let Ok(client) = (if let Some(proxy) = proxy {
-            ClientBuilder::new().cookie_store(true).proxy(proxy).build()
+            ClientBuilder::new()
+                .cookie_store(true)
+                .redirect(redirect::Policy::none())
+                .proxy(proxy)
+                .build()
         } else {
-            ClientBuilder::new().cookie_store(true).build()
+            ClientBuilder::new()
+                .cookie_store(true)
+                .redirect(redirect::Policy::none())
+                .build()
         }) else {
             return Err("Failed to initialize client for auth!".to_string());
         };
@@ -712,12 +719,11 @@ impl Account {
             return Err("Failed to send second request for auth!".to_string());
         };
 
-        let binding = res.url().clone();
-        let url = binding.as_str();
-
-        if url == url_post {
+        let Some(url) = res.headers().get("Location").and_then(|u| u.to_str().ok()) else {
             return Err("invalid credentials, no redirect".to_string());
         };
+
+        let url = url.to_string();
 
         let Ok(body) = res.text() else {
             return Err("Failed to get text from secondary request!".to_string());

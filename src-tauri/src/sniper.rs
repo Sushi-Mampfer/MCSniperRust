@@ -52,7 +52,7 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
     log(
         "SUCCESS",
         Color::from((0, 255, 0)),
-        &format!("Added {} proxies.", proxy_list.len()),
+        &format!("Added {} proxies.", proxy_list.len() - 1),
     );
 
     let accounts = accounts
@@ -65,33 +65,40 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
         let proxy = proxy_list[i].clone();
         threads.push(thread::spawn(move || {
             let mut out = Vec::new();
+            let mut sleep_toggle = false;
             for (i, acc) in accs.iter().enumerate() {
-                if i != 0 {
-                    sleep(Duration::from_secs(21));
-                }
-
-                let mut split = acc.split(":");
-                let Some(user) = split.next() else {
-                    log(
-                        "ERROR",
-                        Color::from((255, 0, 0)),
-                        &format!("{} isn't a valid account!", i),
-                    );
-                    continue;
-                };
-                let Some(pass) = split.next() else {
-                    log(
-                        "ERROR",
-                        Color::from((255, 0, 0)),
-                        &format!("{} isn't a valid account!", i),
-                    );
-                    continue;
-                };
-                if let Some(acc) = Account::new(user.to_owned(), pass.to_owned(), proxy.clone()) {
+                if let Some(acc) =
+                    if acc.len() > 200 && !acc.contains(":") && acc.starts_with("eyJ") {
+                        Account::new_bearer(acc.to_owned(), proxy.clone())
+                    } else {
+                        if sleep_toggle {
+                            sleep(Duration::from_secs(21));
+                        }
+                        let mut split = acc.split(":");
+                        let Some(user) = split.next() else {
+                            log(
+                                "ERROR",
+                                Color::from((255, 0, 0)),
+                                &format!("{} isn't a valid account!", i),
+                            );
+                            continue;
+                        };
+                        let Some(pass) = split.next() else {
+                            log(
+                                "ERROR",
+                                Color::from((255, 0, 0)),
+                                &format!("{} isn't a valid account!", i),
+                            );
+                            continue;
+                        };
+                        sleep_toggle = true;
+                        Account::new(user.to_owned(), pass.to_owned(), proxy.clone())
+                    }
+                {
                     out.push(acc);
                 };
             }
-            if proxy.is_none() {
+            if proxy.is_none() && sleep_toggle {
                 sleep(Duration::from_secs(21));
             }
             out
@@ -119,34 +126,38 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
         return;
     }
 
-    let claim = claim.split(":").collect::<Vec<&str>>();
-    let user = match claim.get(0) {
-        Some(user) => user,
-        _ => {
-            log(
-                "ERROR",
-                Color::from((255, 0, 0)),
-                "Failed to parse claim account!",
-            );
-            alert("Failed to parse claim account!");
-            app_handle().emit("stop", true).unwrap();
-            return;
-        }
-    };
-    let pass = match claim.get(1) {
-        Some(pass) => pass,
-        _ => {
-            log(
-                "ERROR",
-                Color::from((255, 0, 0)),
-                "Failed to parse claim account!",
-            );
-            alert("Failed to parse claim account!");
-            app_handle().emit("stop", true).unwrap();
-            return;
-        }
-    };
-    let mut claim = match Account::new(user.to_string(), pass.to_string(), None) {
+    let mut claim = match if claim.len() > 200 && !claim.contains(":") && claim.starts_with("eyJ") {
+        Account::new_bearer(claim, None)
+    } else {
+        let claim = claim.split(":").collect::<Vec<&str>>();
+        let user = match claim.get(0) {
+            Some(user) => user,
+            _ => {
+                log(
+                    "ERROR",
+                    Color::from((255, 0, 0)),
+                    "Failed to parse claim account!",
+                );
+                alert("Failed to parse claim account!");
+                app_handle().emit("stop", true).unwrap();
+                return;
+            }
+        };
+        let pass = match claim.get(1) {
+            Some(pass) => pass,
+            _ => {
+                log(
+                    "ERROR",
+                    Color::from((255, 0, 0)),
+                    "Failed to parse claim account!",
+                );
+                alert("Failed to parse claim account!");
+                app_handle().emit("stop", true).unwrap();
+                return;
+            }
+        };
+        Account::new(user.to_string(), pass.to_string(), None)
+    } {
         Some(acc) => acc,
         _ => {
             log(

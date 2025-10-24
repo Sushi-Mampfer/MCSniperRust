@@ -1,11 +1,12 @@
-use chrono::{DateTime, Duration, Utc};
+use base64::prelude::*;
+use chrono::{offset::LocalResult, DateTime, Duration, TimeZone, Utc};
 use regex::Regex;
 use reqwest::{
     blocking::ClientBuilder,
     header::{ACCEPT, AUTHORIZATION},
     Proxy,
 };
-use serde_json::{json, Value};
+use serde_json::{from_str, json, Value};
 use tauri::{http::HeaderMap, window::Color, Emitter};
 use urlencoding::{decode, encode};
 
@@ -21,13 +22,20 @@ enum AccType {
     UNCLAIMED,
 }
 
+#[derive(PartialEq, Clone, Debug)]
+enum LoginType {
+    USERPASS,
+    BEARER,
+}
+
 #[derive(Clone, Debug)]
 pub struct Account {
     token: String,
-    refresh_token: String,
-    user: String,
-    passwd: String,
+    refresh_token: Option<String>,
+    user: Option<String>,
+    passwd: Option<String>,
     acc_type: AccType,
+    login_type: LoginType,
     time: DateTime<Utc>,
 }
 
@@ -67,11 +75,122 @@ impl Account {
         );
         Some(Account {
             token,
-            refresh_token,
-            user,
-            passwd,
+            refresh_token: Some(refresh_token),
+            user: Some(user),
+            passwd: Some(passwd),
             acc_type,
+            login_type: LoginType::USERPASS,
             time: Utc::now() + Duration::hours(23),
+        })
+    }
+
+    pub fn new_bearer(token: String, proxy: Option<Proxy>) -> Option<Self> {
+        let Some(data) = token.split(".").nth(1) else {
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                &format!("{} is not a valid bearer token!", token),
+            );
+            return None;
+        };
+        let Ok(data) = BASE64_STANDARD.decode(data) else {
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                &format!("{} is not a valid bearer token!", token),
+            );
+            return None;
+        };
+        let data = String::from_utf8_lossy(&data);
+        let Ok(json) = from_str::<Value>(&data) else {
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                &format!("{} is not a valid bearer token!", token),
+            );
+            return None;
+        };
+        let Some(exp) = json.get("exp").and_then(|v| v.as_i64()) else {
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                &format!("{} is not a valid bearer token!", token),
+            );
+            return None;
+        };
+
+        let LocalResult::Single(exp) = Utc.timestamp_opt(exp, 0) else {
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                &format!("{} is not a valid bearer token!", token),
+            );
+            return None;
+        };
+
+        if exp - Duration::minutes(10) < Utc::now() {
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                format!("{} is expired already!", token).as_str(),
+            );
+            return None;
+        }
+
+        let acc_type = match Self::check_type(token.clone(), proxy) {
+            Some(acc_type) => acc_type,
+            _ => {
+                log(
+                    "ERROR",
+                    Color::from((255, 0, 0)),
+                    format!("Failed to get account type for {}!", token).as_str(),
+                );
+                return None;
+            }
+        };
+
+        let exp_min = (exp - Utc::now()).num_minutes() - 10;
+
+        if exp_min < 60 {
+            log(
+                "SUCCESS",
+                Color::from((0, 255, 0)),
+                format!(
+                    "Successfully added a bearer that expires in {} minutes.",
+                    exp_min
+                )
+                .as_str(),
+            );
+        } else if exp_min % 60 == 0 {
+            log(
+                "SUCCESS",
+                Color::from((0, 255, 0)),
+                format!(
+                    "Successfully added a bearer that expires in {} hours.",
+                    exp_min / 60
+                )
+                .as_str(),
+            );
+        } else {
+            log(
+                "SUCCESS",
+                Color::from((0, 255, 0)),
+                format!(
+                    "Successfully added a bearer that expires in {} hours and {} minutes.",
+                    exp_min / 60,
+                    exp_min % 60
+                )
+                .as_str(),
+            );
+        }
+        Some(Self {
+            token,
+            refresh_token: None,
+            user: None,
+            passwd: None,
+            acc_type,
+            login_type: LoginType::BEARER,
+            time: exp - Duration::minutes(10),
         })
     }
 
@@ -320,18 +439,27 @@ impl Account {
         if self.time > Utc::now() {
             return Some(());
         }
+        if self.login_type == LoginType::BEARER {
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                &format!("A bearer token expired."),
+            );
+            return None;
+        }
+
         if let Err(e) = self.reauth(proxy) {
             log(
                 "ERROR",
                 Color::from((255, 0, 0)),
-                &format!("Failed to reauth {}: {}", self.user, e),
+                &format!("Failed to reauth {}: {}", self.user.clone().unwrap(), e),
             );
             return None;
         }
         log(
             "Success",
             Color::from((0, 255, 0)),
-            &format!("Reauthed {}.", self.user),
+            &format!("Reauthed {}.", self.user.clone().unwrap()),
         );
         self.time = Utc::now() + Duration::hours(23);
         Some(())
@@ -346,7 +474,7 @@ impl Account {
             return Err("Failed to initialize client for reauth!".to_string());
         };
 
-        let body = format!("client_id=000000004C12AE6F&grant_type=refresh_token&refresh_token={}&scope=service::user.auth.xboxlive.com::MBI_SSL", encode(&self.refresh_token));
+        let body = format!("client_id=000000004C12AE6F&grant_type=refresh_token&refresh_token={}&scope=service::user.auth.xboxlive.com::MBI_SSL", encode(&self.refresh_token.clone().unwrap()));
 
         let Ok(res) = client
             .post("https://login.live.com/oauth20_token.srf")
@@ -367,10 +495,14 @@ impl Account {
                 Color::from((255, 0, 0)),
                 "Failed to reauth with refresh_token, trying full auth!",
             );
-            match Self::auth(&self.user, &self.passwd, proxy) {
+            match Self::auth(
+                &self.user.clone().unwrap(),
+                &self.passwd.clone().unwrap(),
+                proxy,
+            ) {
                 Ok((bearer, refresh_token)) => {
                     self.token = bearer;
-                    self.refresh_token = refresh_token;
+                    self.refresh_token = Some(refresh_token);
                     return Ok(());
                 }
                 Err(e) => return Err(e),
@@ -383,10 +515,14 @@ impl Account {
                 Color::from((255, 0, 0)),
                 "Failed to reauth with refresh_token, trying full auth!",
             );
-            match Self::auth(&self.user, &self.passwd, proxy) {
+            match Self::auth(
+                &self.user.clone().unwrap(),
+                &self.passwd.clone().unwrap(),
+                proxy,
+            ) {
                 Ok((bearer, refresh_token)) => {
                     self.token = bearer;
-                    self.refresh_token = refresh_token;
+                    self.refresh_token = Some(refresh_token);
                     return Ok(());
                 }
                 Err(e) => return Err(e),
@@ -524,7 +660,7 @@ impl Account {
         };
 
         self.token = bearer.to_string();
-        self.refresh_token = refresh_token.to_string();
+        self.refresh_token = Some(refresh_token.to_string());
 
         Ok(())
     }
@@ -596,6 +732,7 @@ impl Account {
         };
 
         if !url.contains("access_token") {
+            println!("{}\n{}", url, body);
             return Err("Invalid credentials, no access_token in redirect".to_string());
         };
 
@@ -767,6 +904,6 @@ impl Account {
             return Err("Failed to extract bearer!".to_string());
         };
 
-        Ok((bearer.to_string(), refresh_token))
+        Ok((dbg!(bearer.to_string()), refresh_token))
     }
 }

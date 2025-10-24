@@ -267,6 +267,7 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
             log("ERROR", Color::from((255, 0, 0)), "No working accounts!");
             alert("No working accounts!");
             app_handle().emit("stop", true).unwrap();
+            set_thread_status(false);
             return;
         }
 

@@ -14,6 +14,7 @@ html {
     margin: 0;
     padding: 0;
 }
+
 body {
     padding: 1em;
     height: calc(100% - 2em);
@@ -70,8 +71,8 @@ input:focus {
     width: 50%;
 }
 
-.left > *,
-.right > * {
+.left>*,
+.right>* {
     color: #ccc;
     margin: 0.5em;
     width: calc(100% - 3em);
@@ -82,7 +83,7 @@ input:focus {
     padding: 0.5em;
 }
 
-.right > * {
+.right>* {
     height: calc(50% - 3em);
 }
 
@@ -94,9 +95,6 @@ input:focus {
     display: inline-grid;
     grid-template-columns: 1fr;
     grid-template-rows: repeat(2, 1fr);
-    padding: 1em;
-    width: calc(100% - 4em);
-    height: calc(50% - 4em);
 }
 
 #claim_token {
@@ -104,13 +102,19 @@ input:focus {
 }
 
 #tokens {
-    height: calc(100% - 8em);
+    height: calc(50% - 8em);
+    margin: 1em 0.5em;
 }
 
-#config > * {
+#proxies {
+    height: calc(50% - 3em);
+}
+
+#config>* {
     padding: 0;
     margin: 1rem;
 }
+
 .storp {
     color: #ccc;
     background-color: rgba(0, 0, 0, 0);
@@ -136,11 +140,17 @@ input:focus {
     font-size: 4rem;
     text-align: center;
     color: #ccc;
-    -webkit-appearance: none;
+    appearance: none;
     width: calc(100% - 3rem);
     height: calc(100% - 3rem);
     background-color: rgba(0, 0, 0, 0);
     backdrop-filter: blur(5px);
     border: 0.5rem solid transparent;
     border-radius: 10rem;
+}
+
+textarea,
+input {
+    line-height: 1;
+    display: block;
 }

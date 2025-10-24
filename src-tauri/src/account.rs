@@ -910,6 +910,6 @@ impl Account {
             return Err("Failed to extract bearer!".to_string());
         };
 
-        Ok((dbg!(bearer.to_string()), refresh_token))
+        Ok((bearer.to_string(), refresh_token))
     }
 }

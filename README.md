@@ -36,3 +36,6 @@ And there is one that doesn't allow you to spam more than 20, but the time to re
 - [This fork](https://github.com/impliedgg/MCsniperGO) of MCSniperGo, for the auth
 - ATTACH, from the MCSniperGo/Forge Sniping dc, for general information
 - [The Mojang API docs](https://mojang-api-docs.gapple.pw/), for information about the API
+
+## Bugs
+There are probably some bugs, if you find any please make an issue or even better a pull request.

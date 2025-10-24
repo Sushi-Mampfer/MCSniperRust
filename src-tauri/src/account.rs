@@ -305,6 +305,17 @@ impl Account {
         None
     }
 
+    pub fn check_change_eligibility(&self) -> Option<bool> {
+        let client = ClientBuilder::new().build().ok()?;
+        let res = client
+            .get("https://api.minecraftservices.com/minecraft/profile/namechange")
+            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .send()
+            .ok()?;
+        let data = res.json::<Value>().ok()?;
+        data.get("nameChangeAllowed").and_then(|v| v.as_bool())
+    }
+
     pub fn opt_reauth(&mut self, proxy: Option<Proxy>) -> Option<()> {
         if self.time > Utc::now() {
             return Some(());
@@ -322,6 +333,7 @@ impl Account {
             Color::from((0, 255, 0)),
             &format!("Reauthed {}.", self.user),
         );
+        self.time = Utc::now() + Duration::hours(23);
         Some(())
     }
 
@@ -338,7 +350,7 @@ impl Account {
 
         let Ok(res) = client
             .post("https://login.live.com/oauth20_token.srf")
-            .header("Content-Type", "application/x-www-form-urlencode")
+            .header("Content-Type", "application/x-www-form-urlencoded")
             .body(body)
             .send()
         else {
@@ -383,12 +395,12 @@ impl Account {
 
         let body = json!({
             "Properties": {
-                "Authmethod": "RPS",
-                "Sitename": "user.auth.xboxlive.com",
-                "Rpsticket": access_token,
+                "AuthMethod": "RPS",
+                "SiteName": "user.auth.xboxlive.com",
+                "RpsTicket": access_token,
             },
-            "Relyingparty": "http://auth.xboxlive.com",
-            "Tokentype": "JWT",
+            "RelyingParty": "http://auth.xboxlive.com",
+            "TokenType": "JWT",
         });
 
         let mut headers = HeaderMap::new();
@@ -472,7 +484,7 @@ impl Account {
             }
         }
 
-        let Some(uhs_verify) = body
+        let Some(uhs_verify) = data
             .get("DisplayClaims")
             .and_then(|v| v.get("xui"))
             .and_then(|v| v.get(0))
@@ -486,7 +498,7 @@ impl Account {
             return Err("uhs tokens don't match!".to_string());
         }
 
-        let Some(token) = body.get("Token").and_then(|v| v.as_str()) else {
+        let Some(token) = data.get("Token").and_then(|v| v.as_str()) else {
             return Err("No token found in xbox live auth body.".to_string());
         };
 
@@ -716,7 +728,7 @@ impl Account {
             }
         }
 
-        let Some(uhs_verify) = body
+        let Some(uhs_verify) = data
             .get("DisplayClaims")
             .and_then(|v| v.get("xui"))
             .and_then(|v| v.get(0))
@@ -730,12 +742,12 @@ impl Account {
             return Err("uhs tokens don't match!".to_string());
         }
 
-        let Some(token) = body.get("Token").and_then(|v| v.as_str()) else {
+        let Some(token) = data.get("Token").and_then(|v| v.as_str()) else {
             return Err("No token found in xbox live auth body.".to_string());
         };
 
         let body = json!({
-            "identityToken" : dbg!(format!("XBL3.0 x={};{}", uhs, token)),
+            "identityToken" : format!("XBL3.0 x={};{}", uhs, token),
             "ensureLegacyEnabled": true
         });
 
@@ -747,12 +759,9 @@ impl Account {
             return Err("Failed to send request for bearer!".to_string());
         };
 
-        println!("{}", res.text().unwrap());
-
-        /* let Ok(data) = res.json::<Value>() else {
+        let Ok(data) = res.json::<Value>() else {
             return Err("Failed to parse response for bearer!".to_string());
-        }; */
-        let data = Value::Null;
+        };
 
         let Some(bearer) = data.get("access_token").and_then(|v| v.as_str()) else {
             return Err("Failed to extract bearer!".to_string());

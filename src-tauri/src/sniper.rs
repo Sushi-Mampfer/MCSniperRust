@@ -146,7 +146,7 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
             return;
         }
     };
-    let claim = match Account::new(user.to_string(), pass.to_string(), None) {
+    let mut claim = match Account::new(user.to_string(), pass.to_string(), None) {
         Some(acc) => acc,
         _ => {
             log(
@@ -159,6 +159,30 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
             return;
         }
     };
+    match claim.check_change_eligibility() {
+        Some(b) => {
+            if !b {
+                log(
+                    "ERROR",
+                    Color::from((255, 0, 0)),
+                    "Claimer can't namechange!",
+                );
+                alert("Claimer can't namechange!");
+                app_handle().emit("stop", true).unwrap();
+                return;
+            }
+        }
+        None => {
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                "Failed to check if claimer can change name!",
+            );
+            alert("Failed to check if claimer can change name!");
+            app_handle().emit("stop", true).unwrap();
+            return;
+        }
+    }
     let window = match app_handle().get_webview_window("main") {
         Some(w) => w,
         _ => {
@@ -279,7 +303,6 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
                     if available {
                         claim_pass.claim(name_pass, proxy_pass.clone());
                         app_handle().emit("stop", true).unwrap();
-                        set_thread_status(false);
                         return;
                     } else {
                         log(
@@ -312,6 +335,16 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
         });
 
         proxy_list.push_back(proxy);
+        if claim.opt_reauth(None).is_none() {
+            log(
+                "ERROR",
+                Color::from((255, 0, 0)),
+                "Failed to reauth claimer!",
+            );
+            alert("Failed to reauth claimer!");
+            app_handle().emit("stop", true).unwrap();
+            return;
+        }
         sleep(Duration::from_secs_f32(rl));
     }
 }

@@ -1,5 +1,5 @@
 ## How it works
-Four accounts send a request to the Mojang API to check if the name is available. If it is, another account claims it. This circumvents the strict rate limit on the claiming endpoint by utilizing the lower rate limit on the checking endpoint. Even with only one account MCSniperRust is as fast as MCSniperGo with over 5000(assuming a droptime of over 24h).
+Four accounts send a request to the Mojang API to check if the name is available. If it is, another account claims it. This circumvents the strict rate limit on the claiming endpoint by utilizing the lower rate limit on the checking endpoint. Even with only one account MCSniperRust is as fast as MCSniperGo with over 200(assuming a droptime of over 24h).
 
 ## Usage
 - Download and run the latest release

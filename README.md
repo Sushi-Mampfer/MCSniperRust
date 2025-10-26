@@ -41,5 +41,5 @@ And there is one that doesn't allow you to spam more than 20, but the time to re
 There are probably some bugs, if you find any please make an issue or even better a pull request.
 
 ## Demo
-
+https://github.com/user-attachments/assets/9c358958-092d-4bd5-867e-da9a80a8849a
 I can't show it changing the name, because I only have 2 accounts and both have decent names.

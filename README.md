@@ -39,3 +39,7 @@ And there is one that doesn't allow you to spam more than 20, but the time to re
 
 ## Bugs
 There are probably some bugs, if you find any please make an issue or even better a pull request.
+
+## Demo
+
+I can't show it changing the name, because I only have 2 accounts and both have decent names.

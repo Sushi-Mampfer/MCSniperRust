@@ -224,12 +224,6 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
         "Sniper started successfully!",
     );
     alert("Sniper started successfully!");
-
-    log(
-        name.to_uppercase().as_str(),
-        Color::from((0, 255, 0)),
-        format!("Sniping {}!", name).as_str(),
-    );
     let (tx_death, rx_death) = channel::<()>();
     let (tx_acc, rx_acc) = channel::<Account>();
 
@@ -237,6 +231,28 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
 
     loop {
         if !get_thread_status() {
+            let window = match app_handle().get_webview_window("main") {
+                Some(w) => w,
+                _ => {
+                    log("ERROR", Color::from((255, 0, 0)), "Failed to get window!");
+                    alert("Failed to get window!");
+                    app_handle().emit("stop", true).unwrap();
+                    return;
+                }
+            };
+            match window.set_title("MCSniperRust - Idle") {
+                Ok(_) => {}
+                _ => {
+                    log(
+                        "ERROR",
+                        Color::from((255, 0, 0)),
+                        "Failed to change window title!",
+                    );
+                    alert("Failed to change window title!");
+                    app_handle().emit("stop", true).unwrap();
+                    return;
+                }
+            };
             return;
         }
         if get_ratelimit() {

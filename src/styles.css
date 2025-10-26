@@ -1,11 +1,18 @@
 html {
-    background-image: url("https://images.unsplash.com/photo-1485470733090-0aae1788d5af");
+    background-image: url("https://images.unsplash.com/photo-1508255139162-e1f7b7288ab7");
     background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
 }
 
 * {
     font-size: 16px;
     font-family: Arial, sans-serif;
+    transition: box-shadow 1s, background-color 1s, backdrop-filter 1s;
+}
+
+*::placeholder {
+    color: #000;
 }
 
 html {
@@ -24,14 +31,6 @@ body {
 
 textarea {
     resize: none;
-}
-
-textarea:focus {
-    outline: none;
-}
-
-input:focus {
-    outline: none;
 }
 
 ::-webkit-scrollbar {
@@ -73,10 +72,10 @@ input:focus {
 
 .left>*,
 .right>* {
-    color: #ccc;
+    color: #000;
     margin: 0.5em;
     width: calc(100% - 3em);
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: rgba(174, 91, 34, 0.2);
     backdrop-filter: blur(5px);
     border: 0.5em solid transparent;
     border-radius: 1em;
@@ -89,6 +88,7 @@ input:focus {
 
 #logs {
     overflow-y: scroll;
+    overflow-x: hidden;
 }
 
 #config {
@@ -116,20 +116,12 @@ input:focus {
 }
 
 .storp {
-    color: #ccc;
-    background-color: rgba(0, 0, 0, 0);
+    color: #000;
+    background-color: rgba(174, 91, 34, 0.2);
     backdrop-filter: blur(5px);
     border: 0.5rem solid transparent;
     border-radius: 10rem;
     font-size: 5rem;
-}
-
-.storp:hover {
-    background-color: rgba(127, 127, 127, 0.5);
-}
-
-.storp:active {
-    background-color: rgba(127, 127, 127, 0.8);
 }
 
 #stop {
@@ -139,11 +131,11 @@ input:focus {
 #name {
     font-size: 4rem;
     text-align: center;
-    color: #ccc;
+    color: #000;
     appearance: none;
     width: calc(100% - 3rem);
     height: calc(100% - 3rem);
-    background-color: rgba(0, 0, 0, 0);
+    background-color: rgba(174, 91, 34, 0.2);
     backdrop-filter: blur(5px);
     border: 0.5rem solid transparent;
     border-radius: 10rem;
@@ -153,4 +145,16 @@ textarea,
 input {
     line-height: 1;
     display: block;
+}
+
+textarea:focus,
+textarea:hover,
+input:focus,
+input:hover,
+button:hover,
+#logs:hover {
+    outline: none;
+    box-shadow: 0 0 10px 5px #d97b44;
+    background-color: rgba(174, 91, 34, 0.4);
+    backdrop-filter: blur(10px);
 }

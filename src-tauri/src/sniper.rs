@@ -18,9 +18,27 @@ use crate::{
 
 #[tauri::command]
 pub fn stop() {
+    match app_handle().get_webview_window("main") {
+        Some(window) => {
+            match window.set_title("MCSniperRust - Stopping...") {
+                Ok(_) => {}
+                _ => {
+                    log(
+                        "ERROR",
+                        Color::from((255, 0, 0)),
+                        "Failed to change window title!",
+                    );
+                    alert("Failed to change window title!");
+                }
+            };
+        }
+        _ => {
+            log("ERROR", Color::from((255, 0, 0)), "Failed to get window!");
+            alert("Failed to get window!");
+        }
+    };
     set_thread_status(false);
-    log("STOPPED", Color::from((255, 0, 0)), "Sniper stopped!");
-    alert("Sniper stopped!");
+    log("STOPPING", Color::from((255, 255, 0)), "Sniper stopping...");
     app_handle().emit("stop", true).unwrap();
 }
 
@@ -225,11 +243,6 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
     );
     alert("Sniper started successfully!");
 
-    log(
-        name.to_uppercase().as_str(),
-        Color::from((0, 255, 0)),
-        format!("Sniping {}!", name).as_str(),
-    );
     let (tx_death, rx_death) = channel::<()>();
     let (tx_acc, rx_acc) = channel::<Account>();
 
@@ -237,6 +250,21 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
 
     loop {
         if !get_thread_status() {
+            match window.set_title("MCSniperRust - Idle") {
+                Ok(_) => {}
+                _ => {
+                    log(
+                        "ERROR",
+                        Color::from((255, 0, 0)),
+                        "Failed to change window title!",
+                    );
+                    alert("Failed to change window title!");
+                    app_handle().emit("stop", true).unwrap();
+                    return;
+                }
+            };
+            log("STOPPED", Color::from((255, 0, 0)), "Sniper stopped!");
+            alert("Sniper stopped!");
             return;
         }
         if get_ratelimit() {

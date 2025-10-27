@@ -1,6 +1,6 @@
 [package]
 name = "MCSniperRust"
-version = "0.1.0"
+version = "0.1.2"
 description = "A name sniper"
 authors = ["sushi"]
 edition = "2021"

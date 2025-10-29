@@ -43,13 +43,25 @@ pub fn stop() {
 }
 
 #[tauri::command]
-pub fn start(claim: String, accounts: Vec<String>, proxies: Vec<String>, name: String) -> bool {
-    thread::spawn(move || snipe(name, accounts, claim, proxies));
+pub fn start(
+    claim: String,
+    accounts: Vec<String>,
+    proxies: Vec<String>,
+    name: String,
+    auth_w_proxies: bool,
+) -> bool {
+    thread::spawn(move || snipe(name, accounts, claim, proxies, auth_w_proxies));
     set_thread_status(true);
     true
 }
 
-fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String>) {
+fn snipe(
+    name: String,
+    accounts: Vec<String>,
+    claim: String,
+    proxies: Vec<String>,
+    auth_w_proxies: bool,
+) {
     thread::sleep(Duration::from_secs(1));
 
     let mut proxy_list = VecDeque::new();
@@ -73,68 +85,109 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
         &format!("Added {} proxies.", proxy_list.len() - 1),
     );
 
-    let accounts = accounts
-        .chunks((accounts.len() / proxy_list.len()).max(1))
-        .map(|accs| accs.to_vec());
+    let mut accounts = if auth_w_proxies {
+        let accounts = accounts
+            .chunks((accounts.len() / proxy_list.len()).max(1))
+            .map(|accs| accs.to_vec());
+        let mut threads = Vec::new();
 
-    let mut threads = Vec::new();
-
-    for (i, accs) in accounts.enumerate() {
-        let proxy = proxy_list[i].clone();
-        threads.push(thread::spawn(move || {
-            let mut out = Vec::new();
-            let mut sleep_toggle = false;
-            for (i, acc) in accs.iter().enumerate() {
-                if let Some(acc) =
-                    if acc.len() > 200 && !acc.contains(":") && acc.starts_with("eyJ") {
-                        Account::new_bearer(acc.to_owned(), proxy.clone())
-                    } else {
-                        if sleep_toggle {
-                            sleep(Duration::from_secs(21));
+        for (i, accs) in accounts.enumerate() {
+            let proxy = proxy_list[i].clone();
+            threads.push(thread::spawn(move || {
+                let mut out = Vec::new();
+                let mut sleep_toggle = false;
+                for acc in accs {
+                    if let Some(acc) =
+                        if acc.len() > 200 && !acc.contains(":") && acc.starts_with("eyJ") {
+                            Account::new_bearer(acc.to_owned(), proxy.clone())
+                        } else {
+                            if sleep_toggle {
+                                sleep(Duration::from_secs(21));
+                                sleep_toggle = false
+                            }
+                            let mut split = acc.split(":");
+                            let Some(user) = split.next() else {
+                                log(
+                                    "ERROR",
+                                    Color::from((255, 0, 0)),
+                                    &format!("{} isn't a valid account!", acc),
+                                );
+                                continue;
+                            };
+                            let Some(pass) = split.next() else {
+                                log(
+                                    "ERROR",
+                                    Color::from((255, 0, 0)),
+                                    &format!("{} isn't a valid account!", acc),
+                                );
+                                continue;
+                            };
+                            sleep_toggle = true;
+                            Account::new(user.to_owned(), pass.to_owned(), proxy.clone())
                         }
-                        let mut split = acc.split(":");
-                        let Some(user) = split.next() else {
-                            log(
-                                "ERROR",
-                                Color::from((255, 0, 0)),
-                                &format!("{} isn't a valid account!", i),
-                            );
-                            continue;
-                        };
-                        let Some(pass) = split.next() else {
-                            log(
-                                "ERROR",
-                                Color::from((255, 0, 0)),
-                                &format!("{} isn't a valid account!", i),
-                            );
-                            continue;
-                        };
-                        sleep_toggle = true;
-                        Account::new(user.to_owned(), pass.to_owned(), proxy.clone())
-                    }
-                {
-                    out.push(acc);
-                };
-            }
-            if proxy.is_none() && sleep_toggle {
-                sleep(Duration::from_secs(21));
-            }
-            out
-        }));
-    }
-
-    let mut accounts = VecDeque::new();
-
-    for i in threads {
-        match i.join() {
-            Ok(accs) => accounts.append(&mut VecDeque::from(accs)),
-            Err(_) => log(
-                "ERROR",
-                Color::from((255, 0, 0)),
-                "A thread to sign in accounts failed.",
-            ),
+                    {
+                        out.push(acc);
+                    };
+                }
+                if proxy.is_none() && sleep_toggle {
+                    sleep(Duration::from_secs(21));
+                }
+                out
+            }));
         }
-    }
+
+        let mut accounts = VecDeque::new();
+
+        for i in threads {
+            match i.join() {
+                Ok(accs) => accounts.append(&mut VecDeque::from(accs)),
+                Err(_) => log(
+                    "ERROR",
+                    Color::from((255, 0, 0)),
+                    "A thread to sign in accounts failed.",
+                ),
+            }
+        }
+        accounts
+    } else {
+        let mut out = VecDeque::new();
+        let mut sleep_toggle = false;
+        for acc in accounts {
+            if let Some(acc) = if acc.len() > 200 && !acc.contains(":") && acc.starts_with("eyJ") {
+                Account::new_bearer(acc.to_owned(), None)
+            } else {
+                if sleep_toggle {
+                    sleep(Duration::from_secs(21));
+                    sleep_toggle = false
+                }
+                let mut split = acc.split(":");
+                let Some(user) = split.next() else {
+                    log(
+                        "ERROR",
+                        Color::from((255, 0, 0)),
+                        &format!("{} isn't a valid account!", acc),
+                    );
+                    continue;
+                };
+                let Some(pass) = split.next() else {
+                    log(
+                        "ERROR",
+                        Color::from((255, 0, 0)),
+                        &format!("{} isn't a valid account!", acc),
+                    );
+                    continue;
+                };
+                sleep_toggle = true;
+                Account::new(user.to_owned(), pass.to_owned(), None)
+            } {
+                out.push_front(acc);
+            };
+        }
+        if sleep_toggle {
+            sleep(Duration::from_secs(21));
+        }
+        out
+    };
     let mut accounts_num = accounts.len() as u32;
 
     if accounts_num == 0 {
@@ -354,7 +407,7 @@ fn snipe(name: String, accounts: Vec<String>, claim: String, proxies: Vec<String
                 }
                 Err(err) => log("ERROR", Color::from((255, 0, 0)), &err),
             }
-            match account.opt_reauth(proxy_pass) {
+            match account.opt_reauth(if auth_w_proxies { proxy_pass } else { None }) {
                 Some(_) => match tx_acc_pass.send(account) {
                     Ok(_) => (),
                     Err(_) => log(

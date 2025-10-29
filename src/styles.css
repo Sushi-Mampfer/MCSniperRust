@@ -155,22 +155,52 @@ input {
     display: block;
 }
 
-#auth {
+.auth {
     position: absolute;
     top: calc(50% + 1.5em);
     right: calc(50% + 1.5em);
     margin: 0;
     padding: 0;
     height: 1.5em;
-    width: 3em;
-    background-color: #000;
-    appearance: none;
-    -webkit-appearance: none;
+    line-height: 1.5em;
+    width: auto;
 }
 
-#auth::before {
+#auth {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+    height: 0;
+    width: 0;
+}
+
+.auth>span {
+    margin-left: .5em;
+    background-color: #fe0000;
+    height: 1.5em;
+    width: 3em;
+    float: right;
+    border-radius: 0.75em;
+    transition: background-color .15s linear;
+}
+
+.auth>span::after {
+    display: block;
     content: "";
-    background-color: #fff;
-    width: 1em;
     height: 1em;
+    width: 1em;
+    border-radius: 0.5em;
+    background-color: black;
+    top: .25em;
+    left: .25em;
+    position: relative;
+    transition: left .15s linear;
+}
+
+.auth>input:checked+span::after {
+    left: 1.75em;
+}
+
+.auth>input:checked+span {
+    background-color: lime;
 }

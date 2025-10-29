@@ -10,6 +10,7 @@ let fastEl;
 let privEl;
 let startEl;
 let stopEl;
+let authEl;
 
 window.addEventListener("DOMContentLoaded", () => {
   tokensEl = document.querySelector("#tokens");
@@ -21,6 +22,7 @@ window.addEventListener("DOMContentLoaded", () => {
   stopEl.addEventListener("click", stop);
   startEl = document.querySelector("#start");
   startEl.addEventListener("click", start);
+  authEl = document.querySelector("#auth");
 });
 
 listen("log", (event) => {
@@ -49,6 +51,7 @@ function start() {
     accounts: tokensEl.value.split("\n").filter((line) => line.trim() !== ""),
     proxies: proxiesEl.value.split("\n").filter((line) => line.trim() !== ""),
     name: nameEl.value,
+    authWProxies: authEl.checked,
   };
   invoke("start", data).then((res) => {
     if (res) {

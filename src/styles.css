@@ -154,3 +154,23 @@ input {
     line-height: 1;
     display: block;
 }
+
+#auth {
+    position: absolute;
+    top: calc(50% + 1.5em);
+    right: calc(50% + 1.5em);
+    margin: 0;
+    padding: 0;
+    height: 1.5em;
+    width: 3em;
+    background-color: #000;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+#auth::before {
+    content: "";
+    background-color: #fff;
+    width: 1em;
+    height: 1em;
+}

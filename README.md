@@ -5,7 +5,7 @@ Checker accounts send requests to the Mojang API to check if the name is availab
 - Download and run the latest release
 - Add one account into the `Claim Account` field, the format is `email:password` or `bearer token`
 - Add some accounts into the `Checker Accounts` field, the format is `email:password` or `bearer token`
-- Optionally add proxies to the `Proxies` field, one for every 3-4 checker accounts is recommended, you can use more if you want faster auth, the format is `protocol://user:pass@ip:port` or `protocol://ip:port`
+- Optionally add proxies to the `Proxies` field, one for every 3-4 checker accounts is recommended, the format is `protocol://user:pass@ip:port` or `protocol://ip:port`
 - Enter your desired name in the "Name" field
 - Press the "Start" button
 

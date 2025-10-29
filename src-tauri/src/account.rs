@@ -720,6 +720,13 @@ impl Account {
         };
 
         let Some(url) = res.headers().get("Location").and_then(|u| u.to_str().ok()) else {
+            if let Ok(body) = res.text() {
+                if body.contains("pprid") {
+                    return Err(
+                        format!("A proxy or your ip is not trusted by {}, either log in manually with the proxy or turn of \"Use proxies for auth\"", user),
+                    );
+                }
+            };
             return Err("invalid credentials, no redirect".to_string());
         };
 

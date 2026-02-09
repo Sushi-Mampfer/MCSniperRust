@@ -10,7 +10,7 @@ use reqwest::Proxy;
 use tauri::{window::Color, Emitter, Manager};
 
 use crate::{
-    account::Account,
+    account::{AccType, Account},
     app_handle, get_ratelimit, get_thread_status,
     log::{alert, log},
     set_ratelimit, set_thread_status,
@@ -241,28 +241,30 @@ fn snipe(
             return;
         }
     };
-    match claim.check_change_eligibility() {
-        Some(b) => {
-            if !b {
+    if claim.acc_type == AccType::CLAIMED {
+        match claim.check_change_eligibility() {
+            Some(b) => {
+                if !b {
+                    log(
+                        "ERROR",
+                        Color::from((255, 0, 0)),
+                        "Claimer can't namechange!",
+                    );
+                    alert("Claimer can't namechange!");
+                    app_handle().emit("stop", true).unwrap();
+                    return;
+                }
+            }
+            None => {
                 log(
                     "ERROR",
                     Color::from((255, 0, 0)),
-                    "Claimer can't namechange!",
+                    "Failed to check if claimer can change name!",
                 );
-                alert("Claimer can't namechange!");
+                alert("Failed to check if claimer can change name!");
                 app_handle().emit("stop", true).unwrap();
                 return;
             }
-        }
-        None => {
-            log(
-                "ERROR",
-                Color::from((255, 0, 0)),
-                "Failed to check if claimer can change name!",
-            );
-            alert("Failed to check if claimer can change name!");
-            app_handle().emit("stop", true).unwrap();
-            return;
         }
     }
     let window = match app_handle().get_webview_window("main") {

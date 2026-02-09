@@ -17,7 +17,7 @@ use crate::{
 };
 
 #[derive(PartialEq, Clone, Debug)]
-enum AccType {
+pub enum AccType {
     CLAIMED,
     UNCLAIMED,
 }
@@ -34,7 +34,7 @@ pub struct Account {
     refresh_token: Option<String>,
     user: Option<String>,
     passwd: Option<String>,
-    acc_type: AccType,
+    pub acc_type: AccType,
     login_type: LoginType,
     time: DateTime<Utc>,
 }

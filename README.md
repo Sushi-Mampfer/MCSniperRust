@@ -1,3 +1,6 @@
+> [!WARNING]
+> There seem to be new ratelimits, it is unlikely that it will run well for extended periods(more than a few minutes). I'll update the limits soon.
+
 ## How it works
 Checker accounts send requests to the Mojang API to check if the name is available. If it is, another account claims it. This circumvents the strict rate limit on the claiming endpoint by utilizing the lower rate limit on the checking endpoint. Even with only one account MCSniperRust is as fast as MCSniperGo with over 200(assuming a droptime of over 24h).
 
